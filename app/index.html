@@ -655,7 +655,7 @@ async function saveRecord(){
     ['niveau_urgence',urgenceVal],
     ['actions_requises',document.getElementById('f-actions_requises').value],
     ['materiaux_concernes',document.getElementById('f-materiaux_concernes').value],
-    ['surface_estimee',parseFloat(document.getElementById('f-surface_estimee').value)||null],
+    ['surface_estimee',parseFloat(document.getElementById('f-surface_estimee').value)||0],
     ['date_visite',today],
     ['statut','à traiter'],
   ].forEach(([f,v])=>{const k=col(f);if(k)fields[k]=v;});
@@ -669,10 +669,14 @@ async function saveRecord(){
     }catch(e){setStatus('Erreur Grist : '+e.message,'err');}
   } else if(gristConn.url && mapping.tableId){
     try{
+      // Filtrer champs non mappés
+      const vc=tableCols[mapping.tableId]||[];
+      if(vc.length){Object.keys(fields).forEach(k=>{if(!vc.includes(k))delete fields[k];});}
+      console.log('POST Grist:',JSON.stringify(fields));
       const r=await apiFetch(`${gristBase()}/docs/${gristConn.docId}/tables/${mapping.tableId}/records`,{
         method:'POST', headers:gristHdrs(), body:JSON.stringify({records:[{fields}]})
       });
-      if(!r.ok)throw new Error(`HTTP ${r.status}`);
+      if(!r.ok){const t=await r.text();throw new Error(`HTTP ${r.status}: `+t.substring(0,200));}
       setStatus('Visite enregistrée ✓','ok');
       setTimeout(()=>clearAll(),1500);
     }catch(e){setStatus('Erreur REST : '+e.message,'err');}
