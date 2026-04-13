@@ -25,9 +25,8 @@ jobs:
 
       - name: Install Capacitor
         run: |
-          npm install -g @capacitor/cli
-          npm install @capacitor/core @capacitor/android @capacitor/preferences
-          # CapacitorHttp est inclus dans @capacitor/core depuis v4
+          npm install -g @capacitor/cli@6
+          npm install @capacitor/core@6 @capacitor/android@6 @capacitor/preferences@6
 
       - name: Init & sync Capacitor
         run: |
