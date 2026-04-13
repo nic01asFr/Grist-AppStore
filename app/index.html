@@ -340,7 +340,7 @@ const IN_GRIST = typeof grist !== 'undefined' && window.self !== window.top;
 let cfg = { provider:'sspcloud', apiKey:'', baseUrl:'https://llm.lab.sspcloud.fr/api', sttModel:'gemma4-31b', llmModel:'gpt-oss:20b' };
 let gristConn = { url:'', apiKey:'', docId:'' };
 let mapping = { tableId:'', columns:{} };
-let gristRecord = null, transcription = '', audioBlob = null, urgenceVal = '';
+let gristRecord = null, transcription = '', audioBlob = null, urgenceVal = '', gpsCoords = null;
 let mediaRec = null, audioChunks = [], timerInt = null, waveInt = null, elapsed = 0;
 let tableCols = {};
 
@@ -553,7 +553,94 @@ function updateProviderUI(){const p=document.getElementById('svc-provider').valu
 async function saveSettings(){cfg.provider=document.getElementById('svc-provider').value;cfg.apiKey=document.getElementById('svc-apikey').value.trim();cfg.baseUrl=BASE_URLS[cfg.provider]||document.getElementById('svc-base').value.trim();cfg.sttModel=document.getElementById('svc-stt-model').value.trim();cfg.llmModel=document.getElementById('svc-llm-model').value;closeSettings();await persistConfig();setStatus('Paramètres enregistrés','ok');}
 
 // ══ RECORDING ══
-async function toggleRecord(){if(mediaRec&&mediaRec.state==='recording'){mediaRec.stop();return;}try{const s=await navigator.mediaDevices.getUserMedia({audio:true});audioChunks=[];mediaRec=new MediaRecorder(s,{mimeType:MediaRecorder.isTypeSupported('audio/webm')?'audio/webm':'audio/ogg'});mediaRec.ondataavailable=e=>{if(e.data.size)audioChunks.push(e.data);};mediaRec.onstop=async()=>{s.getTracks().forEach(t=>t.stop());stopWave();audioBlob=new Blob(audioChunks,{type:mediaRec.mimeType});setRecUI(false);await transcribeAudio(audioBlob);};mediaRec.start(200);setRecUI(true);startTimer();startWave();}catch(e){setStatus('Microphone inaccessible : '+e.message,'err');}}
+let chunkIdx=0,chunkBlobs=[],streamAbort=null;
+const CHUNK_MS=10000; // 10s segments
+
+async function toggleRecord(){
+  if(mediaRec&&mediaRec.state==='recording'){mediaRec.stop();return;}
+  try{
+    // GPS capture au démarrage
+    gpsCoords=null;
+    if(navigator.geolocation){
+      navigator.geolocation.getCurrentPosition(
+        p=>{gpsCoords={lat:p.coords.latitude,lon:p.coords.longitude,acc:Math.round(p.coords.accuracy)};},
+        ()=>{},
+        {enableHighAccuracy:true,timeout:8000}
+      );
+    }
+    const s=await navigator.mediaDevices.getUserMedia({audio:true});
+    audioChunks=[];chunkBlobs=[];chunkIdx=0;transcription='';
+    document.getElementById('panelTranscription').style.display='block';
+    const box=document.getElementById('tbox');
+    box.className='tbox ld';box.textContent='';
+    mediaRec=new MediaRecorder(s,{mimeType:MediaRecorder.isTypeSupported('audio/webm')?'audio/webm':'audio/ogg'});
+    let segChunks=[];
+    mediaRec.ondataavailable=e=>{
+      if(e.data.size){audioChunks.push(e.data);segChunks.push(e.data);}
+    };
+    // Chunked: toutes les CHUNK_MS, on flush le segment pour transcription
+    const chunkTimer=setInterval(()=>{
+      if(mediaRec.state!=='recording')return;
+      if(segChunks.length){
+        const blob=new Blob(segChunks,{type:mediaRec.mimeType});
+        segChunks=[];
+        transcribeChunk(blob,chunkIdx++);
+      }
+    },CHUNK_MS);
+    mediaRec.onstop=async()=>{
+      clearInterval(chunkTimer);
+      s.getTracks().forEach(t=>t.stop());stopWave();
+      // Flush dernier segment
+      if(segChunks.length){
+        const blob=new Blob(segChunks,{type:mediaRec.mimeType});
+        segChunks=[];
+        await transcribeChunk(blob,chunkIdx++);
+      }
+      audioBlob=new Blob(audioChunks,{type:mediaRec.mimeType});
+      setRecUI(false);
+      document.getElementById('tbox').className='tbox';
+      // Pré-remplir GPS si localisation vide
+      if(gpsCoords){
+        const locEl=document.getElementById('f-localisation_precise');
+        if(locEl&&!locEl.value)locEl.value=gpsCoords.lat.toFixed(6)+', '+gpsCoords.lon.toFixed(6)+' ('+"\u00b1"+gpsCoords.acc+'m)';
+      }
+      if(!transcription)setStatus('Aucune transcription obtenue','err');
+      else setStatus('Transcription terminée \u2713','ok');
+    };
+    mediaRec.start(200);setRecUI(true);startTimer();startWave();
+    setStatus('Enregistrement + transcription en direct\u2026','info');
+  }catch(e){setStatus('Microphone inaccessible : '+e.message,'err');}
+}
+
+async function transcribeChunk(blob,idx){
+  if(!cfg.apiKey){
+    if(idx===0)transcription='[D\u00e9mo] Nid-de-poule PR 14+300, voie droite, ~2 m\u00b2, urgent.';
+    document.getElementById('tbox').textContent=transcription;
+    return;
+  }
+  try{
+    const ext=blob.type.includes('webm')?'webm':'ogg';
+    const b64=await b64enc(blob);
+    let text='';
+    try{
+      const r=await fetch(cfg.baseUrl.replace('/api','/ollama')+'/api/transcribe',{method:'POST',headers:{'Authorization':'Bearer '+cfg.apiKey,'Content-Type':'application/json'},body:JSON.stringify({model:cfg.sttModel,audio:b64,language:'fr'})});
+      if(r.ok){const d=await r.json();text=d.text||'';}
+      else throw new Error('ollama '+r.status);
+    }catch(e1){
+      try{
+        const form=new FormData();form.append('file',blob,'audio.'+ext);form.append('model',cfg.sttModel);form.append('language','fr');
+        const base=cfg.baseUrl.replace(/\/api$/,'');
+        const r=await apiFormFetch(base+'/api/v1/audio/transcriptions',form,{'Authorization':'Bearer '+cfg.apiKey});
+        if(r.ok){const d=await r.json();text=d.text||d.transcription||'';}
+        else throw new Error('/v1 '+r.status);
+      }catch(e2){/* skip chunk */}
+    }
+    if(text){
+      transcription+=(transcription?' ':'')+text.trim();
+      document.getElementById('tbox').textContent=transcription;
+    }
+  }catch(e){/* skip chunk on error */}
+}
 function setRecUI(on){document.getElementById('btnRec').textContent=on?'⏹':'🎙';document.getElementById('btnRec').classList.toggle('rec',on);document.getElementById('recZone').classList.toggle('rec',on);document.getElementById('recLbl').textContent=on?'Enregistrement en cours…':'Appuyer pour enregistrer';document.getElementById('recLbl').classList.toggle('rec',on);document.getElementById('waveform').style.display=on?'flex':'none';if(!on){clearInterval(timerInt);document.getElementById('timer').textContent='';}setStep(on?2:3);}
 function startTimer(){elapsed=0;timerInt=setInterval(()=>{elapsed++;const m=String(Math.floor(elapsed/60)).padStart(2,'0'),s=String(elapsed%60).padStart(2,'0');document.getElementById('timer').textContent=m+':'+s;},1000);}
 function startWave(){const ids=['b1','b2','b3','b4','b5','b6','b7'];waveInt=setInterval(()=>ids.forEach(id=>{document.getElementById(id).style.height=(Math.floor(Math.random()*20)+4)+'px';}),120);}
@@ -561,34 +648,16 @@ function stopWave(){clearInterval(waveInt);}
 
 // ══ TRANSCRIPTION ══
 async function transcribeAudio(blob){
+  // Retranscription complète (un seul blob)
   document.getElementById('panelTranscription').style.display='block';
   const box=document.getElementById('tbox');
-  box.className='tbox ld';
-  box.innerHTML='<span style="color:var(--tx3)">Transcription en cours…</span>';
+  box.className='tbox ld';box.textContent='Transcription en cours…';
   setStatus('STT en cours…','info');
-  if(!cfg.apiKey){transcription='[Démo] Nid-de-poule PR 14+300, voie droite, ~2 m², urgent.';showTbox(transcription,false);setStatus('Mode démo','info');return;}
-  try{
-    const ext=blob.type.includes('webm')?'webm':'ogg';
-    const b64=await b64enc(blob);
-    let text='';
-    try{
-      // Tentative 1 : ollama transcribe
-      const r=await fetch(cfg.baseUrl.replace('/api','/ollama')+'/api/transcribe',{method:'POST',headers:{'Authorization':'Bearer '+cfg.apiKey,'Content-Type':'application/json'},body:JSON.stringify({model:cfg.sttModel,audio:b64,language:'fr'})});
-      if(r.ok){const d=await r.json();text=d.text||'';if(!text)throw new Error('vide');}
-      else throw new Error('ollama '+r.status);
-    }catch(e1){
-      setStatus('Tentative 1 échouée…','info');
-      try{
-        // Tentative 2 : /api/v1/audio/transcriptions
-        const form=new FormData();form.append('file',blob,'audio.'+ext);form.append('model',cfg.sttModel);form.append('language','fr');
-        const base=cfg.baseUrl.replace(/\/api$/,'');
-        const r=await apiFormFetch(base+'/api/v1/audio/transcriptions',form,{'Authorization':'Bearer '+cfg.apiKey});
-        if(r.ok){const d=await r.json();text=d.text||d.transcription||'';if(!text)throw new Error('vide');}
-        else throw new Error('/v1 '+r.status);
-      }catch(e2){setStatus('STT indisponible — saisie manuelle','info');showManualTbox();return;}
-    }
-    transcription=text;showTbox(text,false);setStatus('Transcription terminée ✓','ok');
-  }catch(e){setStatus('Erreur : '+e.message,'err');document.getElementById('tbox').className='tbox';document.getElementById('tbox').innerHTML='<span style="color:var(--cr)">Échec.</span>';}
+  transcription='';chunkIdx=0;
+  await transcribeChunk(blob,0);
+  box.className='tbox';
+  if(transcription){showTbox(transcription,false);setStatus('Transcription terminée ✓','ok');}
+  else{setStatus('STT indisponible — saisie manuelle','info');showManualTbox();}
 }
 function showTbox(t,ld){const b=document.getElementById('tbox');b.className='tbox'+(ld?' ld':'');b.textContent=t||'';setStep(3);}
 function showManualTbox(){document.getElementById('panelTranscription').style.display='block';const b=document.getElementById('tbox');b.className='tbox';b.innerHTML='';const ta=document.createElement('textarea');ta.style.cssText='width:100%;border:none;background:transparent;font-family:inherit;font-size:13px;resize:vertical;min-height:80px;outline:none;color:var(--tx)';ta.placeholder='Saisir ou coller le texte ici…';ta.oninput=()=>{transcription=ta.value;};b.appendChild(ta);ta.focus();}
@@ -617,10 +686,40 @@ Transcription : "${transcription}"`;
   if(!cfg.apiKey){r={commentaire_structure:'Nid-de-poule au PR 14+300, voie droite, ~2 m².',type_observation:'Voirie',localisation_precise:'PR 14+300, voie droite',niveau_urgence:'élevé',actions_requises:'Colmatage provisoire puis réparation.',materiaux_concernes:'Bitume',surface_estimee:2,statut:'à traiter'};}
   else{
     try{
-      const resp=await apiFetch(cfg.baseUrl+'/chat/completions',{method:'POST',headers:{'Authorization':'Bearer '+cfg.apiKey,'Content-Type':'application/json'},body:JSON.stringify({model:cfg.llmModel,messages:[{role:'user',content:prompt}],temperature:0.1})});
-      if(!resp.ok)throw new Error('HTTP '+resp.status);
-      const data=await resp.json();
-      r=JSON.parse((data.choices?.[0]?.message?.content||'{}').replace(/```json|```/g,'').trim());
+      // Streaming LLM — affichage progressif dans commentaire
+      const isOllama=cfg.baseUrl.includes('sspcloud');
+      const cBox=document.getElementById('f-commentaire_structure');
+      let full='';
+      if(isOllama){
+        // Ollama /api/chat — NDJSON stream
+        const ollamaUrl=cfg.baseUrl.replace('/api','/ollama')+'/api/chat';
+        const resp=await fetch(ollamaUrl,{method:'POST',headers:{'Authorization':'Bearer '+cfg.apiKey,'Content-Type':'application/json'},body:JSON.stringify({model:cfg.llmModel,messages:[{role:'user',content:prompt}]})});
+        if(!resp.ok)throw new Error('HTTP '+resp.status);
+        const reader=resp.body.getReader(),dec=new TextDecoder();
+        while(true){
+          const{done,value}=await reader.read();if(done)break;
+          const chunk=dec.decode(value,{stream:true});
+          for(const line of chunk.split('\n')){
+            if(!line.trim())continue;
+            try{const j=JSON.parse(line);if(j.message?.content){full+=j.message.content;if(cBox)cBox.value=full;}}catch(_){}
+          }
+        }
+      } else {
+        // OpenAI-compatible SSE stream
+        const resp=await fetch(cfg.baseUrl+'/chat/completions',{method:'POST',headers:{'Authorization':'Bearer '+cfg.apiKey,'Content-Type':'application/json'},body:JSON.stringify({model:cfg.llmModel,messages:[{role:'user',content:prompt}],temperature:0.1,stream:true})});
+        if(!resp.ok)throw new Error('HTTP '+resp.status);
+        const reader=resp.body.getReader(),dec=new TextDecoder();
+        while(true){
+          const{done,value}=await reader.read();if(done)break;
+          const chunk=dec.decode(value,{stream:true});
+          for(const line of chunk.split('\n')){
+            if(!line.startsWith('data:'))continue;
+            const d=line.slice(5).trim();if(d==='[DONE]')continue;
+            try{const j=JSON.parse(d);const tk=j.choices?.[0]?.delta?.content;if(tk){full+=tk;if(cBox)cBox.value=full;}}catch(_){}
+          }
+        }
+      }
+      r=JSON.parse(full.replace(/```json|```/g,'').trim());
     }catch(e){setStatus('Erreur LLM : '+e.message,'err');document.getElementById('btnExtract').disabled=false;return;}
   }
   fillFields(r);
@@ -655,7 +754,7 @@ async function saveRecord(){
     ['niveau_urgence',urgenceVal],
     ['actions_requises',document.getElementById('f-actions_requises').value],
     ['materiaux_concernes',document.getElementById('f-materiaux_concernes').value],
-    ['surface_estimee',parseFloat(document.getElementById('f-surface_estimee').value)||null],
+    ['surface_estimee',parseFloat(document.getElementById('f-surface_estimee').value)||0],
     ['date_visite',today],
     ['statut','à traiter'],
   ].forEach(([f,v])=>{const k=col(f);if(k)fields[k]=v;});
@@ -672,7 +771,7 @@ async function saveRecord(){
       const r=await apiFetch(`${gristBase()}/docs/${gristConn.docId}/tables/${mapping.tableId}/records`,{
         method:'POST', headers:gristHdrs(), body:JSON.stringify({records:[{fields}]})
       });
-      if(!r.ok)throw new Error(`HTTP ${r.status}`);
+      if(!r.ok){const t=await r.text();throw new Error(`HTTP ${r.status}: `+t.substring(0,200));}
       setStatus('Visite enregistrée ✓','ok');
       setTimeout(()=>clearAll(),1500);
     }catch(e){setStatus('Erreur REST : '+e.message,'err');}
@@ -688,7 +787,7 @@ function show(id){document.getElementById(id).style.display='block';}
 function hide(id){document.getElementById(id).style.display='none';}
 function setStatus(msg,type){const el=document.getElementById('statusMsg');el.textContent=msg;el.className='s-'+type;}
 function setStep(n){for(let i=1;i<=4;i++){const el=document.getElementById('step'+i);if(!el)continue;el.classList.remove('active','done');if(i<n){el.classList.add('done');el.querySelector('.step-n').textContent='✓';}else if(i===n){el.classList.add('active');el.querySelector('.step-n').textContent=i;}else el.querySelector('.step-n').textContent=i;}}
-function clearAll(){transcription='';audioBlob=null;urgenceVal='';document.getElementById('panelTranscription').style.display='none';document.getElementById('panelFields').style.display='none';document.getElementById('btnSave').disabled=true;['commentaire_structure','type_observation','localisation_precise','actions_requises','materiaux_concernes','surface_estimee'].forEach(k=>{const el=document.getElementById('f-'+k);if(el)el.value='';});document.querySelectorAll('.up').forEach(p=>p.classList.remove('sel'));setStep(2);setStatus('Prêt','info');}
+function clearAll(){transcription='';audioBlob=null;urgenceVal='';gpsCoords=null;document.getElementById('panelTranscription').style.display='none';document.getElementById('panelFields').style.display='none';document.getElementById('btnSave').disabled=true;['commentaire_structure','type_observation','localisation_precise','actions_requises','materiaux_concernes','surface_estimee'].forEach(k=>{const el=document.getElementById('f-'+k);if(el)el.value='';});document.querySelectorAll('.up').forEach(p=>p.classList.remove('sel'));setStep(2);setStatus('Prêt','info');}
 </script>
 </body>
 </html>
