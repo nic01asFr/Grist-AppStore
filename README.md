@@ -2,32 +2,31 @@
 
 Widget Grist de saisie vocale terrain avec IA (transcription + extraction de champs structurés).
 
-## Fonctionnement
+## Utilisation dans Grist (recommandé)
 
-- **Dans Grist** : widget personnalisé, connexion native via `grist-plugin-api`
-- **Hors Grist (PWA / APK)** : onboarding avec URL Grist, clé API, Doc ID — connexion via Grist REST API
+1. Ouvrir un document Grist
+2. Ajouter un widget personnalisé → URL : `https://nic01asFr.github.io/Grist-AppStore/`
+3. Accès complet requis
+4. **Activer la permission Microphone** : icône crayon du widget → cocher "Microphone"
+5. Au premier lancement : création automatique de la table `Visites_terrain` ou mapping
 
-## Distribution
+## Mode standalone PWA
 
-### PWA (recommandé)
+Accessible sur `https://nic01asFr.github.io/Grist-AppStore/` directement.
 
-Hébergée sur GitHub Pages : `https://nic01asFr.github.io/Grist-AppStore/`
+> **Prérequis CORS** : le mode standalone utilise l'API REST Grist depuis un autre domaine.
+> Cela nécessite que votre instance Grist autorise les requêtes cross-origin (header `Access-Control-Allow-Origin`).
+> `grist.numerique.gouv.fr` ne supporte pas CORS externe — utilisez une instance auto-hébergée ou le mode widget natif.
 
 Sur Android Chrome : Menu → *Ajouter à l'écran d'accueil* → icône, plein écran, hors ligne.
 
-### APK Android
+## Problèmes connus
 
-Télécharger le dernier `.apk` depuis les [Releases GitHub](../../releases).
-
-Nécessite : *Sources inconnues* activées dans les paramètres Android.
-
-## Utilisation dans Grist
-
-1. Ouvrir un document Grist
-2. Ajouter un widget personnalisé (Custom Widget)
-3. URL : `https://nic01asFr.github.io/Grist-AppStore/`
-4. Accès complet requis
-5. Au premier lancement : création automatique de la table `Visites_terrain` ou mapping vers une table existante
+| Problème | Cause | Solution |
+|---|---|---|
+| `Permissions policy violation: microphone` | Grist bloque le micro par défaut dans les iframes | Activer "Microphone" dans les paramètres du widget |
+| `CORS: Authorization not allowed` | Le serveur Grist n'autorise pas les requêtes cross-origin | Utiliser le widget natif dans Grist, ou une instance avec CORS configuré |
+| `Failed to load icon-192.png` | Icônes PWA manquantes | Ajouter `icons/icon-192.png` et `icons/icon-512.png` (192×192 et 512×512) |
 
 ## Stack
 
@@ -40,5 +39,5 @@ Nécessite : *Sources inconnues* activées dans les paramètres Android.
 
 ```bash
 python -m http.server 9090
-# puis Grist Custom Widget → http://localhost:9090/
+# Grist Custom Widget → http://localhost:9090/
 ```
