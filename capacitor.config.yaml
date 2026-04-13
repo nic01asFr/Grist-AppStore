@@ -1,7 +1,12 @@
-
-  appId: fr.cerema.scoutia
-  appName: SCOUT IA
-  webDir: .
-  plugins:
-    Preferences:
-      group: ScoutIAConfig
+appId: fr.cerema.scoutia
+appName: SCOUT IA
+webDir: app
+plugins:
+  Preferences:
+    group: ScoutIAConfig
+  CapacitorHttp:
+    enabled: true
+android:
+  allowMixedContent: false
+  captureInput: true
+  webContentsDebuggingEnabled: false

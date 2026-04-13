@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SCOUT IA — Gestion</title>
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<style>
+:root{--ct:#085041;--ct-m:#1D9E75;--ct-l:#E1F5EE;--ca:#BA7517;--ca-l:#FAEEDA;--cr:#A32D2D;--cr-l:#FCEBEB;--cp:#534AB7;--cp-l:#EEEDFE;--cg:#444441;--cg-l:#F1EFE8;--cg-m:#888780;--bg:#fff;--bg2:#f8f7f4;--bg3:#f1efe8;--bd:rgba(0,0,0,.08);--bd2:rgba(0,0,0,.15);--tx:#1a1a18;--tx2:#5f5e5a;--tx3:#888780;--r:6px;--f:'Segoe UI',system-ui,sans-serif}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--f);background:var(--bg);color:var(--tx);font-size:13px;line-height:1.5}
+
+/* TOOLBAR */
+.toolbar{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--bd);background:var(--bg);position:sticky;top:0;z-index:10;flex-wrap:wrap}
+.toolbar-title{font-size:12px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.06em;margin-right:4px}
+.filter-btn{padding:4px 10px;border-radius:20px;font-size:11px;font-weight:600;border:1.5px solid transparent;cursor:pointer;background:var(--bg2);color:var(--tx2);transition:all .12s}
+.filter-btn.active{color:var(--ct);background:var(--ct-l);border-color:var(--ct-m)}
+.filter-btn:hover{background:var(--bg3)}
+.sep{width:1px;height:18px;background:var(--bd2);margin:0 2px}
+.search-wrap{flex:1;min-width:120px;position:relative}
+.search-wrap input{width:100%;border:1px solid var(--bd2);border-radius:20px;padding:5px 10px 5px 28px;font-size:12px;font-family:var(--f);background:var(--bg2);color:var(--tx);outline:none}
+.search-wrap input:focus{border-color:var(--ct-m);background:var(--bg)}
+.search-icon{position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--tx3);font-size:13px}
+.stat-chips{display:flex;gap:6px;margin-left:auto}
+.stat-chip{font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;white-space:nowrap}
+.chip-total{background:var(--bg3);color:var(--tx2)}
+.chip-urgent{background:var(--cr-l);color:var(--cr)}
+.chip-new{background:var(--ca-l);color:var(--ca)}
+
+/* TABLE */
+.table-wrap{overflow:auto;max-height:calc(100vh - 120px)}
+table{width:100%;border-collapse:collapse;font-size:12px}
+thead tr{background:var(--bg2);position:sticky;top:0;z-index:5}
+th{padding:7px 10px;text-align:left;font-size:10px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--bd2);white-space:nowrap;cursor:pointer;user-select:none}
+th:hover{color:var(--tx)}
+th .sort{margin-left:4px;opacity:.4}
+th.sorted .sort{opacity:1}
+td{padding:8px 10px;border-bottom:1px solid var(--bd);vertical-align:top;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+tr:hover td{background:var(--bg2)}
+tr.selected td{background:var(--ct-l)}
+tr:last-child td{border-bottom:none}
+
+/* BADGES */
+.badge{display:inline-block;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700;white-space:nowrap}
+.badge-faible{background:var(--ct-l);color:var(--ct)}
+.badge-moyen{background:var(--ca-l);color:var(--ca)}
+.badge-eleve{background:#fef3cd;color:#7d5a00}
+.badge-critique{background:var(--cr-l);color:var(--cr)}
+.badge-traiter{background:var(--cg-l);color:var(--cg)}
+.badge-encours{background:var(--ca-l);color:var(--ca)}
+.badge-valide{background:var(--ct-l);color:var(--ct)}
+.badge-rejete{background:var(--cr-l);color:var(--cr)}
+
+/* DETAIL PANEL */
+.detail{display:none;border-top:2px solid var(--ct-m);background:var(--bg);padding:0}
+.detail.open{display:block}
+.detail-hdr{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--bd);background:var(--bg2)}
+.detail-hdr h3{font-size:13px;font-weight:600}
+.detail-hdr-actions{display:flex;gap:6px;align-items:center}
+.detail-body{padding:14px;display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.detail-field{display:flex;flex-direction:column;gap:3px}
+.detail-field.full{grid-column:1/-1}
+.detail-label{font-size:10px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.05em}
+.detail-val{font-size:12px;color:var(--tx);line-height:1.6}
+.detail-transcription{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);padding:10px;font-size:12px;line-height:1.7;white-space:pre-wrap;color:var(--tx2)}
+.status-select{border:1px solid var(--bd2);border-radius:var(--r);padding:4px 8px;font-size:12px;font-family:var(--f);background:var(--bg);color:var(--tx);outline:none;cursor:pointer}
+.status-select:focus{border-color:var(--ct-m)}
+
+/* BUTTONS */
+.btn{padding:5px 12px;border-radius:var(--r);font-size:12px;font-weight:600;border:1.5px solid transparent;cursor:pointer;font-family:var(--f);transition:all .1s}
+.bp{background:var(--ct-m);color:#fff;border-color:var(--ct-m)}.bp:hover{filter:brightness(1.08)}
+.bp:disabled{background:var(--cg-l);color:var(--tx3);border-color:transparent;cursor:not-allowed}
+.bs{background:var(--bg);border-color:var(--bd2);color:var(--tx2)}.bs:hover{background:var(--bg3)}
+.br-btn{background:none;border:none;cursor:pointer;color:var(--tx3);font-size:16px;padding:2px 6px;border-radius:4px}
+.br-btn:hover{background:var(--bg3);color:var(--tx)}
+
+/* EMPTY */
+.empty{text-align:center;padding:40px 20px;color:var(--tx3)}
+.empty-icon{font-size:32px;margin-bottom:10px}
+.empty p{font-size:13px}
+
+/* SAVE BAR */
+.save-bar{display:none;position:fixed;bottom:0;left:0;right:0;background:var(--ct);color:#fff;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;font-size:13px;z-index:20}
+.save-bar.visible{display:flex}
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <span class="toolbar-title">Visites</span>
+  <button class="filter-btn active" data-filter="all" onclick="setFilter('all',this)">Toutes</button>
+  <button class="filter-btn" data-filter="à traiter" onclick="setFilter('à traiter',this)">À traiter</button>
+  <button class="filter-btn" data-filter="en cours" onclick="setFilter('en cours',this)">En cours</button>
+  <button class="filter-btn" data-filter="validé" onclick="setFilter('validé',this)">Validées</button>
+  <div class="sep"></div>
+  <button class="filter-btn" data-urgence="critique" onclick="setUrgence('critique',this)">🔴 Critique</button>
+  <div class="sep"></div>
+  <div class="search-wrap">
+    <span class="search-icon">⌕</span>
+    <input type="text" id="searchInput" placeholder="Rechercher…" oninput="filterRows()">
+  </div>
+  <div class="stat-chips">
+    <span class="stat-chip chip-total" id="chipTotal">0</span>
+    <span class="stat-chip chip-urgent" id="chipUrgent" style="display:none">0 critiques</span>
+    <span class="stat-chip chip-new" id="chipNew" style="display:none">0 nouvelles</span>
+  </div>
+</div>
+
+<div class="table-wrap">
+  <table id="mainTable">
+    <thead>
+      <tr>
+        <th onclick="sortBy('date_visite')" class="sorted">Date <span class="sort">↓</span></th>
+        <th onclick="sortBy('type_observation')">Type <span class="sort">↕</span></th>
+        <th onclick="sortBy('localisation_precise')">Localisation <span class="sort">↕</span></th>
+        <th onclick="sortBy('niveau_urgence')">Urgence <span class="sort">↕</span></th>
+        <th onclick="sortBy('statut')">Statut <span class="sort">↕</span></th>
+        <th>Commentaire <span class="sort"></span></th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="tableBody">
+      <tr><td colspan="7"><div class="empty"><div class="empty-icon">📋</div><p>Chargement…</p></div></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="detail" id="detailPanel">
+  <div class="detail-hdr">
+    <h3 id="detailTitle">Détail de la visite</h3>
+    <div class="detail-hdr-actions">
+      <select class="status-select" id="detailStatus" onchange="updateStatus()">
+        <option value="à traiter">À traiter</option>
+        <option value="en cours">En cours</option>
+        <option value="validé">Validé</option>
+        <option value="rejeté">Rejeté</option>
+      </select>
+      <button class="btn bp" id="btnSaveDetail" onclick="saveDetail()" disabled>Enregistrer</button>
+      <button class="br-btn" onclick="closeDetail()" title="Fermer">✕</button>
+    </div>
+  </div>
+  <div class="detail-body" id="detailBody"></div>
+</div>
+
+<div class="save-bar" id="saveBar">
+  <span id="saveBarMsg">Modifications non sauvegardées</span>
+  <div style="display:flex;gap:8px">
+    <button class="btn bs" onclick="cancelChanges()" style="color:#fff;border-color:rgba(255,255,255,.3)">Annuler</button>
+    <button class="btn bp" onclick="saveDetail()" style="background:#fff;color:var(--ct)">Enregistrer</button>
+  </div>
+</div>
+
+<script>
+const IN_GRIST = typeof grist !== 'undefined';
+let allRecords = [], currentFilter = 'all', currentUrgence = null;
+let sortCol = 'date_visite', sortAsc = false;
+let selectedId = null, pendingChanges = {};
+
+// Mapping colonnes → si non configuré, on essaie les noms exacts
+let colMap = {};
+const COLS = ['transcription_brute','commentaire_structure','type_observation','localisation_precise','niveau_urgence','actions_requises','materiaux_concernes','surface_estimee','date_visite','statut'];
+
+// ══ BOOT ══
+if (IN_GRIST) {
+  try { grist.ready({ requiredAccess: 'full' }); } catch(e) { try { grist.ready(); } catch(_){} }
+  try {
+    grist.onRecords((records, mappings) => {
+      colMap = mappings || {};
+      allRecords = records.map(r => {
+        const mapped = {};
+        COLS.forEach(c => { mapped[c] = r[colMap[c] || c]; });
+        mapped._id = r.id;
+        return mapped;
+      });
+      renderTable();
+      updateStats();
+    });
+  } catch(e) { console.warn(e); }
+}
+
+// ══ RENDER ══
+function renderTable() {
+  let rows = [...allRecords];
+
+  // Filtre statut
+  if (currentFilter !== 'all') rows = rows.filter(r => r.statut === currentFilter);
+  // Filtre urgence
+  if (currentUrgence) rows = rows.filter(r => r.niveau_urgence === currentUrgence);
+  // Recherche
+  const q = document.getElementById('searchInput').value.toLowerCase();
+  if (q) rows = rows.filter(r =>
+    ['commentaire_structure','type_observation','localisation_precise','actions_requises']
+      .some(k => (r[k]||'').toLowerCase().includes(q))
+  );
+  // Sort
+  rows.sort((a,b) => {
+    const av = a[sortCol]||'', bv = b[sortCol]||'';
+    return sortAsc ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
+  });
+
+  const tbody = document.getElementById('tableBody');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="7"><div class="empty"><div class="empty-icon">📭</div><p>Aucune visite correspondante</p></div></td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = rows.map(r => {
+    const urgBadge = urgenceBadge(r.niveau_urgence);
+    const statBadge = statusBadge(r.statut);
+    const date = r.date_visite ? formatDate(r.date_visite) : '—';
+    const comment = (r.commentaire_structure || r.transcription_brute || '').substring(0,60);
+    const sel = r._id === selectedId ? ' class="selected"' : '';
+    return `<tr${sel} onclick="openDetail(${r._id})" style="cursor:pointer">
+      <td style="white-space:nowrap">${date}</td>
+      <td>${r.type_observation||'—'}</td>
+      <td style="max-width:160px">${r.localisation_precise||'—'}</td>
+      <td>${urgBadge}</td>
+      <td>${statBadge}</td>
+      <td style="color:var(--tx2)">${comment}${comment.length>=60?'…':''}</td>
+      <td onclick="event.stopPropagation()">
+        <select class="status-select" onchange="quickStatus(${r._id},this.value)" style="font-size:11px;padding:2px 6px">
+          ${['à traiter','en cours','validé','rejeté'].map(s=>`<option${r.statut===s?' selected':''}>${s}</option>`).join('')}
+        </select>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function urgenceBadge(v) {
+  const map = {'faible':'faible','moyen':'moyen','élevé':'eleve','critique':'critique'};
+  const cls = map[v] || 'faible';
+  return v ? `<span class="badge badge-${cls}">${v}</span>` : '<span style="color:var(--tx3)">—</span>';
+}
+function statusBadge(v) {
+  const map = {'à traiter':'traiter','en cours':'encours','validé':'valide','rejeté':'rejete'};
+  const cls = map[v] || 'traiter';
+  return v ? `<span class="badge badge-${cls}">${v}</span>` : '<span style="color:var(--tx3)">—</span>';
+}
+function formatDate(ts) {
+  if (!ts) return '—';
+  // Grist stocke les dates en secondes Unix
+  const d = new Date(ts * 1000);
+  if (isNaN(d.getTime())) return String(ts).substring(0,10);
+  return d.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'2-digit'});
+}
+
+// ══ DETAIL ══
+function openDetail(id) {
+  selectedId = id;
+  pendingChanges = {};
+  const r = allRecords.find(x => x._id === id);
+  if (!r) return;
+
+  document.getElementById('detailTitle').textContent = `${r.type_observation||'Visite'} · ${formatDate(r.date_visite)}`;
+  document.getElementById('detailStatus').value = r.statut || 'à traiter';
+  document.getElementById('btnSaveDetail').disabled = true;
+
+  const body = document.getElementById('detailBody');
+  body.innerHTML = `
+    <div class="detail-field full">
+      <div class="detail-label">Transcription brute</div>
+      <div class="detail-transcription">${r.transcription_brute||'—'}</div>
+    </div>
+    <div class="detail-field full">
+      <div class="detail-label">Commentaire structuré</div>
+      <textarea id="de-commentaire" style="width:100%;border:1px solid var(--bd2);border-radius:var(--r);padding:8px;font-size:12px;font-family:var(--f);resize:vertical;min-height:80px;outline:none;color:var(--tx);background:var(--bg)" onchange="markChanged('commentaire_structure',this.value)">${r.commentaire_structure||''}</textarea>
+    </div>
+    <div class="detail-field">
+      <div class="detail-label">Type d'observation</div>
+      <div class="detail-val">${r.type_observation||'—'}</div>
+    </div>
+    <div class="detail-field">
+      <div class="detail-label">Localisation</div>
+      <div class="detail-val">${r.localisation_precise||'—'}</div>
+    </div>
+    <div class="detail-field">
+      <div class="detail-label">Niveau d'urgence</div>
+      <div class="detail-val">${urgenceBadge(r.niveau_urgence)}</div>
+    </div>
+    <div class="detail-field">
+      <div class="detail-label">Surface estimée</div>
+      <div class="detail-val">${r.surface_estimee ? r.surface_estimee + ' m²' : '—'}</div>
+    </div>
+    <div class="detail-field full">
+      <div class="detail-label">Actions requises</div>
+      <textarea id="de-actions" style="width:100%;border:1px solid var(--bd2);border-radius:var(--r);padding:8px;font-size:12px;font-family:var(--f);resize:vertical;min-height:60px;outline:none;color:var(--tx);background:var(--bg)" onchange="markChanged('actions_requises',this.value)">${r.actions_requises||''}</textarea>
+    </div>
+    <div class="detail-field">
+      <div class="detail-label">Matériaux concernés</div>
+      <div class="detail-val">${r.materiaux_concernes||'—'}</div>
+    </div>
+  `;
+
+  document.getElementById('detailPanel').classList.add('open');
+  renderTable(); // re-highlight selected row
+}
+
+function closeDetail() {
+  if (Object.keys(pendingChanges).length > 0) {
+    if (!confirm('Des modifications non sauvegardées seront perdues. Continuer ?')) return;
+  }
+  document.getElementById('detailPanel').classList.remove('open');
+  selectedId = null; pendingChanges = {};
+  hideSaveBar();
+  renderTable();
+}
+
+function markChanged(field, value) {
+  pendingChanges[field] = value;
+  document.getElementById('btnSaveDetail').disabled = false;
+  showSaveBar();
+}
+
+function updateStatus() {
+  const v = document.getElementById('detailStatus').value;
+  markChanged('statut', v);
+}
+
+async function quickStatus(id, value) {
+  if (!IN_GRIST) return;
+  try {
+    const col = colMap['statut'] || 'statut';
+    await grist.getTable().update({ id, fields: { [col]: value } });
+    const r = allRecords.find(x => x._id === id);
+    if (r) r.statut = value;
+    renderTable();
+  } catch(e) { console.warn(e); }
+}
+
+async function saveDetail() {
+  if (!selectedId || !IN_GRIST) return;
+  try {
+    const fields = {};
+    Object.entries(pendingChanges).forEach(([k,v]) => { fields[colMap[k]||k] = v; });
+    // Sync statut
+    const statEl = document.getElementById('detailStatus');
+    if (statEl) fields[colMap['statut']||'statut'] = statEl.value;
+
+    await grist.getTable().update({ id: selectedId, fields });
+
+    // Update local
+    const r = allRecords.find(x => x._id === selectedId);
+    if (r) Object.assign(r, pendingChanges);
+    pendingChanges = {};
+    document.getElementById('btnSaveDetail').disabled = true;
+    hideSaveBar();
+    renderTable();
+  } catch(e) { alert('Erreur : ' + e.message); }
+}
+
+function cancelChanges() { closeDetail(); }
+
+function showSaveBar() { document.getElementById('saveBar').classList.add('visible'); }
+function hideSaveBar() { document.getElementById('saveBar').classList.remove('visible'); }
+
+// ══ FILTERS & SORT ══
+function setFilter(val, btn) {
+  currentFilter = val;
+  document.querySelectorAll('[data-filter]').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderTable(); updateStats();
+}
+function setUrgence(val, btn) {
+  currentUrgence = currentUrgence === val ? null : val;
+  document.querySelectorAll('[data-urgence]').forEach(b => b.classList.remove('active'));
+  if (currentUrgence) btn.classList.add('active');
+  renderTable();
+}
+function filterRows() { renderTable(); }
+function sortBy(col) {
+  if (sortCol === col) { sortAsc = !sortAsc; }
+  else { sortCol = col; sortAsc = true; }
+  document.querySelectorAll('th').forEach(th => { th.classList.remove('sorted'); th.querySelector('.sort').textContent = '↕'; });
+  const ths = document.querySelectorAll('th');
+  // Update header visual — simple approach
+  renderTable();
+}
+
+// ══ STATS ══
+function updateStats() {
+  const total = allRecords.length;
+  const critiques = allRecords.filter(r => r.niveau_urgence === 'critique').length;
+  const nouvelles = allRecords.filter(r => r.statut === 'à traiter').length;
+  document.getElementById('chipTotal').textContent = `${total} visite${total>1?'s':''}`;
+  const cu = document.getElementById('chipUrgent');
+  cu.style.display = critiques > 0 ? 'inline' : 'none';
+  cu.textContent = `${critiques} critique${critiques>1?'s':''}`;
+  const cn = document.getElementById('chipNew');
+  cn.style.display = nouvelles > 0 ? 'inline' : 'none';
+  cn.textContent = `${nouvelles} à traiter`;
+}
+</script>
+</body>
+</html>
