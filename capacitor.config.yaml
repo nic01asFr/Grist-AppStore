@@ -1,0 +1,7 @@
+
+  appId: fr.cerema.scoutia
+  appName: SCOUT IA
+  webDir: .
+  plugins:
+    Preferences:
+      group: ScoutIAConfig
