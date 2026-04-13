@@ -285,7 +285,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--tx);font-size:14px;li
 
 <script>
 // ══ STATE ══
-const IN_GRIST = typeof grist !== 'undefined';
+const IN_GRIST = typeof grist !== 'undefined' && window.self !== window.top;
 let cfg = { provider:'sspcloud', apiKey:'', baseUrl:'https://llm.lab.sspcloud.fr/api', sttModel:'gemma4-31b', llmModel:'gpt-oss:20b' };
 let gristConn = { url:'', apiKey:'', docId:'' };
 let mapping = { tableId:'', columns:{} };
