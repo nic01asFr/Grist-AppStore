@@ -35,6 +35,17 @@ jobs:
           npx cap add android 2>/dev/null || true
           npx cap sync android
 
+      - name: Patch AndroidManifest — RECORD_AUDIO + INTERNET
+        run: |
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          if ! grep -q "RECORD_AUDIO" "$MANIFEST"; then
+            sed -i 's|<uses-permission android:name="android.permission.INTERNET" />|<uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />|' "$MANIFEST"
+          fi
+          if ! grep -q "RECORD_AUDIO" "$MANIFEST"; then
+            sed -i 's|</manifest>|    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n</manifest>|' "$MANIFEST"
+          fi
+          grep "uses-permission" "$MANIFEST"
+
       - name: Build APK
         run: |
           cd android
@@ -53,11 +64,5 @@ jobs:
         with:
           files: android/app/build/outputs/apk/debug/app-debug.apk
           name: SCOUT IA ${{ github.ref_name }}
-          body: |
-            ## Installation Android
-
-            1. Télécharger `app-debug.apk`
-            2. Paramètres → Sécurité → Sources inconnues
-            3. Ouvrir et installer
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
