@@ -258,6 +258,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--tx);font-size:14px;li
       <div class="fl ff" id="fg-actions_requises"><label>Actions requises</label><textarea id="f-actions_requises" rows="2" placeholder="Actions à planifier…"></textarea></div>
       <div class="fl" id="fg-materiaux_concernes"><label>Matériaux concernés</label><input type="text" id="f-materiaux_concernes" placeholder="Béton, bitume…"></div>
       <div class="fl" id="fg-surface_estimee"><label>Surface estimée (m²)</label><input type="number" id="f-surface_estimee" placeholder="12" inputmode="decimal"></div>
+      <div class="fl" id="fg-coordonnees_gps"><label>Coordonnées GPS</label><input type="text" id="f-coordonnees_gps" placeholder="Capture auto au démarrage" readonly style="color:var(--tx3);font-size:12px"></div>
     </div>
   </div>
 
@@ -355,9 +356,11 @@ const FIELDS = [
   {id:'surface_estimee',       label:'Surface estimée (m²)',  type:'Numeric', req:false},
   {id:'date_visite',           label:'Date de visite',        type:'Date',    req:false},
   {id:'statut',                label:'Statut',                type:'Choice',  req:false},
+  {id:'audio',                 label:'Audio',                 type:'Attachments', req:false},
+  {id:'coordonnees_gps',       label:'Coordonnées GPS',       type:'Text',    req:false},
 ];
 
-const STORE_KEY = 'scoutia_v4';
+const STORE_KEY = 'scoutia_v5';
 
 // ══ STORAGE ══
 async function storeLoad() {
@@ -538,7 +541,7 @@ function setupListener() {
       const tb = get('transcription_brute');
       if (tb) { transcription=tb; showTbox(tb,false); document.getElementById('panelTranscription').style.display='block'; }
       if (get('niveau_urgence')) selUrgenceVal(get('niveau_urgence'));
-      ['commentaire_structure','type_observation','localisation_precise','actions_requises','materiaux_concernes','surface_estimee'].forEach(k=>{ const el=document.getElementById('f-'+k),v=get(k); if(el&&v!=null)el.value=v; });
+      ['commentaire_structure','type_observation','localisation_precise','actions_requises','materiaux_concernes','surface_estimee','coordonnees_gps'].forEach(k=>{ const el=document.getElementById('f-'+k),v=get(k); if(el&&v!=null)el.value=v; });
       document.getElementById('btnSave').disabled = false;
     });
   } catch(e) { console.warn(e); }
@@ -601,8 +604,11 @@ async function toggleRecord(){
       document.getElementById('tbox').className='tbox';
       // Pré-remplir GPS si localisation vide
       if(gpsCoords){
+        const gpsVal=gpsCoords.lat.toFixed(6)+', '+gpsCoords.lon.toFixed(6)+' (\u00b1'+gpsCoords.acc+'m)';
         const locEl=document.getElementById('f-localisation_precise');
-        if(locEl&&!locEl.value)locEl.value=gpsCoords.lat.toFixed(6)+', '+gpsCoords.lon.toFixed(6)+' ('+"\u00b1"+gpsCoords.acc+'m)';
+        if(locEl&&!locEl.value)locEl.value=gpsVal;
+        const gpsEl=document.getElementById('f-coordonnees_gps');
+        if(gpsEl)gpsEl.value=gpsVal;
       }
       if(!transcription)setStatus('Aucune transcription obtenue','err');
       else setStatus('Transcription terminée \u2713','ok');
@@ -730,7 +736,7 @@ Transcription : "${transcription}"`;
 }
 
 function fillFields(data){
-  ['commentaire_structure','type_observation','localisation_precise','actions_requises','materiaux_concernes','surface_estimee'].forEach(k=>{
+  ['commentaire_structure','type_observation','localisation_precise','actions_requises','materiaux_concernes','surface_estimee','coordonnees_gps'].forEach(k=>{
     const el=document.getElementById('f-'+k),grp=document.getElementById('fg-'+k);
     if(el&&data[k]!=null){el.value=data[k];if(grp){grp.classList.add('ai');setTimeout(()=>grp.classList.remove('ai'),4000);}}
   });
@@ -746,6 +752,17 @@ async function saveRecord(){
   const cm=mapping.columns, col=f=>cm[f]||f;
   const fields={};
   const today=Math.floor(Date.now()/1000); // timestamp Unix pour Date Grist
+
+  // Upload audio PJ si disponible
+  let audioAttId=null;
+  if(audioBlob && gristConn.url){
+    setStatus('Upload audio…','info');
+    audioAttId=await uploadAudioAttachment(audioBlob);
+  }
+
+  // GPS structuré
+  const gpsStr=gpsCoords?gpsCoords.lat.toFixed(6)+', '+gpsCoords.lon.toFixed(6)+' (±'+gpsCoords.acc+'m)':'';
+
   [
     ['transcription_brute',transcription],
     ['commentaire_structure',document.getElementById('f-commentaire_structure').value],
@@ -757,7 +774,9 @@ async function saveRecord(){
     ['surface_estimee',parseFloat(document.getElementById('f-surface_estimee').value)||0],
     ['date_visite',today],
     ['statut','à traiter'],
-  ].forEach(([f,v])=>{const k=col(f);if(k)fields[k]=v;});
+    ['audio',audioAttId?['L',audioAttId]:null],
+    ['coordonnees_gps',gpsStr],
+  ].forEach(([f,v])=>{const k=col(f);if(k&&v!=null)fields[k]=v;});
 
   if(IN_GRIST && gristRecord){
     try{
@@ -781,13 +800,49 @@ async function saveRecord(){
   }
 }
 
+// ══ ATTACHMENT UPLOAD ══
+async function uploadAudioAttachment(blob){
+  // Upload audio vers Grist attachments, retourne l'ID
+  if(!blob || !gristConn.url) return null;
+  try{
+    const ext=blob.type.includes('webm')?'webm':'ogg';
+    const fname='visite_'+new Date().toISOString().replace(/[:.]/g,'-')+'.'+ext;
+    if(IS_CAP){
+      // Capacitor : convertir blob en base64, envoyer via CapacitorHttp multipart
+      const b64=await b64enc(blob);
+      const boundary='----ScoutIA'+Date.now();
+      const body='--'+boundary+'\r\nContent-Disposition: form-data; name="upload"; filename="'+fname+'"\r\nContent-Type: '+blob.type+'\r\nContent-Transfer-Encoding: base64\r\n\r\n'+b64+'\r\n--'+boundary+'--\r\n';
+      const r=await window.Capacitor.Plugins.CapacitorHttp.request({
+        url: gristBase()+'/docs/'+gristConn.docId+'/attachments',
+        method:'POST',
+        headers:{'Authorization':'Bearer '+gristConn.apiKey,'Content-Type':'multipart/form-data; boundary='+boundary},
+        data: body
+      });
+      if(r.status>=200 && r.status<400){
+        const ids=Array.isArray(r.data)?r.data:(r.data||[]);
+        return ids[0]||null;
+      }
+    } else {
+      const form=new FormData();
+      form.append('upload',blob,fname);
+      const r=await fetch(gristBase()+'/docs/'+gristConn.docId+'/attachments',{
+        method:'POST',
+        headers:{'Authorization':'Bearer '+gristConn.apiKey},
+        body:form
+      });
+      if(r.ok){const ids=await r.json();return ids[0]||null;}
+    }
+  }catch(e){console.warn('Attachment upload failed:',e);}
+  return null;
+}
+
 // ══ UTILS ══
 function b64enc(blob){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(',')[1]);r.onerror=rej;r.readAsDataURL(blob);});}
 function show(id){document.getElementById(id).style.display='block';}
 function hide(id){document.getElementById(id).style.display='none';}
 function setStatus(msg,type){const el=document.getElementById('statusMsg');el.textContent=msg;el.className='s-'+type;}
 function setStep(n){for(let i=1;i<=4;i++){const el=document.getElementById('step'+i);if(!el)continue;el.classList.remove('active','done');if(i<n){el.classList.add('done');el.querySelector('.step-n').textContent='✓';}else if(i===n){el.classList.add('active');el.querySelector('.step-n').textContent=i;}else el.querySelector('.step-n').textContent=i;}}
-function clearAll(){transcription='';audioBlob=null;urgenceVal='';gpsCoords=null;document.getElementById('panelTranscription').style.display='none';document.getElementById('panelFields').style.display='none';document.getElementById('btnSave').disabled=true;['commentaire_structure','type_observation','localisation_precise','actions_requises','materiaux_concernes','surface_estimee'].forEach(k=>{const el=document.getElementById('f-'+k);if(el)el.value='';});document.querySelectorAll('.up').forEach(p=>p.classList.remove('sel'));setStep(2);setStatus('Prêt','info');}
+function clearAll(){transcription='';audioBlob=null;urgenceVal='';gpsCoords=null;document.getElementById('panelTranscription').style.display='none';document.getElementById('panelFields').style.display='none';document.getElementById('btnSave').disabled=true;['commentaire_structure','type_observation','localisation_precise','actions_requises','materiaux_concernes','surface_estimee','coordonnees_gps'].forEach(k=>{const el=document.getElementById('f-'+k);if(el)el.value='';});document.querySelectorAll('.up').forEach(p=>p.classList.remove('sel'));setStep(2);setStatus('Prêt','info');}
 </script>
 </body>
 </html>

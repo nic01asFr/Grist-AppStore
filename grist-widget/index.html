@@ -63,6 +63,7 @@ tr:last-child td{border-bottom:none}
 .detail-label{font-size:10px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.05em}
 .detail-val{font-size:12px;color:var(--tx);line-height:1.6}
 .detail-transcription{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);padding:10px;font-size:12px;line-height:1.7;white-space:pre-wrap;color:var(--tx2)}
+.gps-link{color:var(--ct);text-decoration:none;font-size:12px;font-weight:600}.gps-link:hover{text-decoration:underline}.audio-info{display:flex;align-items:center;gap:6px;background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);padding:8px 12px;font-size:12px;color:var(--tx2)}
 .status-select{border:1px solid var(--bd2);border-radius:var(--r);padding:4px 8px;font-size:12px;font-family:var(--f);background:var(--bg);color:var(--tx);outline:none;cursor:pointer}
 .status-select:focus{border-color:var(--ct-m)}
 
@@ -158,7 +159,7 @@ let selectedId = null, pendingChanges = {};
 
 // Mapping colonnes → si non configuré, on essaie les noms exacts
 let colMap = {};
-const COLS = ['transcription_brute','commentaire_structure','type_observation','localisation_precise','niveau_urgence','actions_requises','materiaux_concernes','surface_estimee','date_visite','statut'];
+const COLS = ['transcription_brute','commentaire_structure','type_observation','localisation_precise','niveau_urgence','actions_requises','materiaux_concernes','surface_estimee','date_visite','statut','audio','coordonnees_gps'];
 
 // ══ BOOT ══
 if (IN_GRIST) {
@@ -245,6 +246,20 @@ function formatDate(ts) {
 }
 
 // ══ DETAIL ══
+function gpsHtml(gps) {
+  if (!gps) return '';
+  const parts = (gps+'').split(',');
+  const lat = (parts[0]||'').trim();
+  const lon = (parts[1]||'').split('(')[0].trim();
+  return '<div class="detail-field"><div class="detail-label">Coordonn\u00e9es GPS</div><div class="detail-val"><a class="gps-link" href="https://www.openstreetmap.org/?mlat='+lat+'&mlon='+lon+'&zoom=17#map=17/'+lat+'/'+lon+'" target="_blank">\ud83d\udccd '+gps+'</a></div></div>';
+}
+function audioHtml(audio) {
+  if (!audio) return '';
+  const ids = Array.isArray(audio) ? audio.slice(1) : [audio];
+  if (!ids.length) return '';
+  return '<div class="detail-field full"><div class="detail-label">Enregistrement audio</div><div class="audio-info">\ud83c\udfa7 Audio attach\u00e9 (ID: '+ids.join(', ')+')</div></div>';
+}
+
 function openDetail(id) {
   selectedId = id;
   pendingChanges = {};
@@ -286,9 +301,11 @@ function openDetail(id) {
       <textarea id="de-actions" style="width:100%;border:1px solid var(--bd2);border-radius:var(--r);padding:8px;font-size:12px;font-family:var(--f);resize:vertical;min-height:60px;outline:none;color:var(--tx);background:var(--bg)" onchange="markChanged('actions_requises',this.value)">${r.actions_requises||''}</textarea>
     </div>
     <div class="detail-field">
-      <div class="detail-label">Matériaux concernés</div>
-      <div class="detail-val">${r.materiaux_concernes||'—'}</div>
+      <div class="detail-label">Mat\u00e9riaux concern\u00e9s</div>
+      <div class="detail-val">${r.materiaux_concernes||'\u2014'}</div>
     </div>
+    ${gpsHtml(r.coordonnees_gps)}
+    ${audioHtml(r.audio)}
   `;
 
   document.getElementById('detailPanel').classList.add('open');
