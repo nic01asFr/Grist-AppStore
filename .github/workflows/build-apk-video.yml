@@ -1,0 +1,110 @@
+name: Build APK — SCOUT Vision
+
+on:
+  push:
+    tags: ['vision-v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Capacitor
+        run: |
+          npm install -g @capacitor/cli@6
+          npm install @capacitor/core@6 @capacitor/android@6 @capacitor/preferences@6
+
+      - name: Init & sync Capacitor (SCOUT Vision)
+        run: |
+          # Utiliser la config dédiée à l'app vidéo
+          cp capacitor-video.config.yaml capacitor.config.yaml
+          npx cap init "SCOUT Vision" "fr.cerema.scoutvision" --web-dir app-video 2>/dev/null || true
+          npx cap add android 2>/dev/null || true
+          npx cap sync android
+
+      - name: Patch AndroidManifest — CAMERA + LOCATION + INTERNET
+        run: |
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          echo "=== Manifest avant patch ==="
+          cat "$MANIFEST"
+
+          # Injecter les permissions après INTERNET si pas déjà présentes
+          PERMS='<uses-permission android:name="android.permission.CAMERA" />\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />'
+
+          if ! grep -q "android.permission.CAMERA" "$MANIFEST"; then
+            sed -i "s|<uses-permission android:name=\"android.permission.INTERNET\" />|<uses-permission android:name=\"android.permission.INTERNET\" />\n    ${PERMS}|" "$MANIFEST"
+          fi
+
+          # Si INTERNET n'était pas là, injecter avant </manifest>
+          if ! grep -q "android.permission.CAMERA" "$MANIFEST"; then
+            sed -i "s|</manifest>|    <uses-permission android:name=\"android.permission.CAMERA\" />\n    <uses-permission android:name=\"android.permission.ACCESS_FINE_LOCATION\" />\n    <uses-permission android:name=\"android.permission.ACCESS_COARSE_LOCATION\" />\n</manifest>|" "$MANIFEST"
+          fi
+
+          # Feature caméra
+          if ! grep -q "android.hardware.camera" "$MANIFEST"; then
+            sed -i "s|</manifest>|    <uses-feature android:name=\"android.hardware.camera\" android:required=\"true\" />\n</manifest>|" "$MANIFEST"
+          fi
+
+          echo "=== Manifest après patch ==="
+          grep "uses-permission\|uses-feature" "$MANIFEST"
+
+      - name: Enable WebView camera access (Capacitor config)
+        run: |
+          # S'assurer que la WebView peut accéder à getUserMedia
+          MAIN_ACTIVITY="android/app/src/main/java/fr/cerema/scoutvision/MainActivity.java"
+          if [ -f "$MAIN_ACTIVITY" ]; then
+            # Capacitor gère automatiquement getUserMedia dans la WebView
+            echo "MainActivity trouvée."
+          fi
+
+      - name: Build APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: scout-vision-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: android/app/build/outputs/apk/debug/app-debug.apk
+          name: SCOUT Vision ${{ github.ref_name }}
+          body: |
+            ## SCOUT Vision ${{ github.ref_name }}
+
+            Application de détection vidéo temps réel géolocalisée avec streaming vers Grist.
+
+            ### Fonctionnalités
+            - Détection d'objets embarquée (COCO-SSD / TensorFlow.js) — 80 classes
+            - GPS continu avec vitesse et cap
+            - Streaming temps réel vers Grist (table `Detections_video`)
+            - Déduplification intelligente par IoU + cooldown
+            - Fonctionne sans connexion pour la détection (sync différée)
+
+            ### Installation
+            1. Télécharger `app-debug.apk`
+            2. Activer "Sources inconnues" dans les paramètres Android
+            3. Installer et accorder les permissions (caméra, localisation)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
