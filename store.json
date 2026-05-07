@@ -1,0 +1,60 @@
+{
+  "name": "Grist AppStore",
+  "description": "Applications terrain et métier pour Grist — capteurs mobiles, IA embarquée, synchronisation temps réel",
+  "url": "https://nic01asFr.github.io/Grist-AppStore/",
+  "repository": "https://github.com/nic01asFr/Grist-AppStore",
+  "apps": [
+    {
+      "id": "scout-ia",
+      "name": "SCOUT IA",
+      "version": "0.2.0",
+      "tagline": "Saisie vocale terrain assistée par IA",
+      "description": "Enregistrez vos observations sur le terrain. L'IA transcrit, structure et synchronise automatiquement avec Grist. Transcription live par chunks de 10s, extraction LLM streamée, GPS auto.",
+      "icon": "icons/scout-ia.svg",
+      "color": "#085041",
+      "category": "Terrain",
+      "tags": ["vocal", "IA", "STT", "LLM", "terrain", "inspection"],
+      "permissions": ["microphone", "geolocation", "internet"],
+      "gristTable": "Visites_terrain",
+      "urls": {
+        "landing": "apps/scout-ia.html",
+        "app": "app/",
+        "widget": "grist-widget/",
+        "apk": "https://github.com/nic01asFr/Grist-AppStore/releases/latest/download/app-debug.apk",
+        "releases": "https://github.com/nic01asFr/Grist-AppStore/releases"
+      },
+      "surfaces": [
+        {"type": "apk", "label": "App Android", "description": "Capteur terrain — micro + GPS → Grist"},
+        {"type": "widget", "label": "Widget Grist", "description": "Tableau de bord — filtres, validation, workflow"},
+        {"type": "table", "label": "Table Grist", "description": "Visites_terrain — source de vérité"}
+      ],
+      "stack": ["Capacitor 6", "Web Audio API", "SSPCloud / Albert LLM", "Grist REST API"]
+    },
+    {
+      "id": "scout-vision",
+      "name": "SCOUT Vision",
+      "version": "1.0.0",
+      "tagline": "Détection vidéo temps réel géolocalisée",
+      "description": "Analyse le flux caméra en temps réel avec un modèle embarqué (COCO-SSD / TensorFlow.js). Détecte 80 classes d'objets, géolocalise chaque observation et streame les résultats vers Grist.",
+      "icon": "icons/scout-vision.svg",
+      "color": "#1f6feb",
+      "category": "Vision",
+      "tags": ["vidéo", "IA embarquée", "détection", "TensorFlow.js", "temps réel", "GPS"],
+      "permissions": ["camera", "geolocation", "internet"],
+      "gristTable": "Detections_video",
+      "urls": {
+        "landing": "apps/scout-vision.html",
+        "app": "app-video/",
+        "widget": "grist-widget-video/",
+        "apk": "https://github.com/nic01asFr/Grist-AppStore/releases",
+        "releases": "https://github.com/nic01asFr/Grist-AppStore/releases"
+      },
+      "surfaces": [
+        {"type": "apk", "label": "App Android", "description": "Capteur terrain — caméra + GPS → Grist"},
+        {"type": "widget", "label": "Widget Grist", "description": "Dashboard — détections, filtres, carte"},
+        {"type": "table", "label": "Table Grist", "description": "Detections_video — flux temps réel"}
+      ],
+      "stack": ["Capacitor 6", "TensorFlow.js", "COCO-SSD", "Geolocation API", "Grist REST API"]
+    }
+  ]
+}
