@@ -10,6 +10,9 @@
 <link rel="manifest" href="manifest.json">
 <title>SCOUT IA</title>
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<script src="shared/grist-client.js"></script>
+<script src="shared/storage.js"></script>
+<script src="shared/sensors.js"></script>
 <style>
 :root{--ct:#085041;--ct-m:#1D9E75;--ct-l:#E1F5EE;--ca:#BA7517;--ca-l:#FAEEDA;--cr:#A32D2D;--cr-l:#FCEBEB;--cg:#444441;--cg-l:#F1EFE8;--cg-m:#888780;--bg:#fff;--bg2:#f8f7f4;--bg3:#f1efe8;--bd:rgba(0,0,0,.1);--bd2:rgba(0,0,0,.18);--tx:#1a1a18;--tx2:#5f5e5a;--tx3:#888780;--r:8px;--r2:12px;--f:'Segoe UI',system-ui,sans-serif;--st:env(safe-area-inset-top,0px);--sb:env(safe-area-inset-bottom,0px)}
 @media(prefers-color-scheme:dark){:root{--bg:#1c1c1a;--bg2:#242422;--bg3:#2c2c2a;--bd:rgba(255,255,255,.1);--bd2:rgba(255,255,255,.18);--tx:#e8e6de;--tx2:#b4b2a9;--tx3:#5f5e5a}}
@@ -297,45 +300,8 @@ body{font-family:var(--f);background:var(--bg);color:var(--tx);font-size:14px;li
 </div>
 
 <script>
-// ══ CAPACITOR HTTP WRAPPER ══
-// Dans l'APK : HTTP natif → pas de CORS
-// En dehors : fetch standard
-const IS_CAP = !!(window.Capacitor?.Plugins?.CapacitorHttp);
-
-async function apiFetch(url, opts = {}) {
-  if (IS_CAP) {
-    const method = opts.method || 'GET';
-    let data = undefined;
-    if (opts.body) {
-      try { data = JSON.parse(opts.body); } catch(_) { data = opts.body; }
-    }
-    const r = await window.Capacitor.Plugins.CapacitorHttp.request({
-      url, method,
-      headers: opts.headers || {},
-      data
-    });
-    const ok = r.status >= 200 && r.status < 400;
-    return {
-      ok,
-      status: r.status,
-      json: async () => r.data,
-      text: async () => typeof r.data === 'string' ? r.data : JSON.stringify(r.data)
-    };
-  }
-  return fetch(url, opts);
-}
-
-async function apiFormFetch(url, formData, headers = {}) {
-  if (IS_CAP) {
-    // Capacitor HTTP ne gère pas FormData → fallback fetch
-    // (pour les appels STT — pas de CORS sur SSPCloud depuis APK Android de toute façon)
-    return fetch(url, { method: 'POST', headers, body: formData });
-  }
-  return fetch(url, { method: 'POST', headers, body: formData });
-}
-
 // ══ STATE ══
-const IN_GRIST = typeof grist !== 'undefined' && window.self !== window.top;
+// IS_CAP, IN_GRIST, apiFetch, apiFormFetch → shared/grist-client.js
 
 let cfg = { provider:'sspcloud', apiKey:'', baseUrl:'https://llm.lab.sspcloud.fr/api', sttModel:'gemma4-31b', llmModel:'gpt-oss:20b' };
 let gristConn = { url:'', apiKey:'', docId:'' };
@@ -357,27 +323,10 @@ const FIELDS = [
   {id:'statut',                label:'Statut',                type:'Choice',  req:false},
 ];
 
-const STORE_KEY = 'scoutia_v4';
-
-// ══ STORAGE ══
-async function storeLoad() {
-  try {
-    if (window.Capacitor?.Plugins?.Preferences) {
-      const r = await window.Capacitor.Plugins.Preferences.get({ key: STORE_KEY });
-      return r.value ? JSON.parse(r.value) : null;
-    }
-  } catch(_) {}
-  try { const v = localStorage.getItem(STORE_KEY); return v ? JSON.parse(v) : null; } catch(_) { return null; }
-}
-async function storeSave(data) {
-  const s = JSON.stringify(data);
-  try {
-    if (window.Capacitor?.Plugins?.Preferences) {
-      await window.Capacitor.Plugins.Preferences.set({ key: STORE_KEY, value: s }); return;
-    }
-  } catch(_) {}
-  try { localStorage.setItem(STORE_KEY, s); } catch(_) {}
-}
+// Storage → shared/storage.js (AppStorage)
+const _store = new AppStorage('scoutia_v4');
+const storeLoad = () => _store.load();
+const storeSave = (d) => _store.save(d);
 
 // ══ BOOT ══
 window.addEventListener('load', async () => {

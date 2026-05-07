@@ -10,6 +10,10 @@
 <link rel="manifest" href="manifest.json">
 <title>SCOUT Vision</title>
 <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<script src="shared/grist-client.js"></script>
+<script src="shared/storage.js"></script>
+<script src="shared/sensors.js"></script>
+<script src="shared/batch-sync.js"></script>
 <style>
 :root{--bg:#0d1117;--bg2:#161b22;--bg3:#21262d;--bd:rgba(255,255,255,.1);--bd2:rgba(255,255,255,.18);--tx:#e6edf3;--tx2:#8b949e;--tx3:#484f58;--ct:#1f6feb;--ct-m:#58a6ff;--ct-l:rgba(56,139,253,.15);--cr:#f85149;--cr-l:rgba(248,81,73,.15);--cg:#3fb950;--cg-l:rgba(63,185,80,.15);--ca:#d29922;--ca-l:rgba(210,153,34,.15);--r:8px;--r2:12px;--f:'Segoe UI',system-ui,sans-serif;--st:env(safe-area-inset-top,0px);--sb:env(safe-area-inset-bottom,0px)}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -365,7 +369,7 @@ const FIELDS = [
 // ══════════════════════════════════════════════════════
 // STATE
 // ══════════════════════════════════════════════════════
-const IN_GRIST = typeof grist !== 'undefined' && window.self !== window.top;
+// IN_GRIST → shared/grist-client.js
 
 let model       = null;   // TF.js COCO-SSD
 let detecting   = false;  // boucle active
@@ -394,46 +398,11 @@ function genSessionId(){
   return `SV_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}_${String(d.getHours()).padStart(2,'0')}${String(d.getMinutes()).padStart(2,'0')}_${Math.random().toString(36).slice(2,6).toUpperCase()}`;
 }
 
-// ══════════════════════════════════════════════════════
-// CAPACITOR HTTP (même pattern que SCOUT IA)
-// ══════════════════════════════════════════════════════
-const IS_CAP = !!(window.Capacitor?.Plugins?.CapacitorHttp);
-
-async function apiFetch(url, opts = {}){
-  if(IS_CAP){
-    const method = opts.method || 'GET';
-    let data;
-    if(opts.body){ try{ data = JSON.parse(opts.body); }catch(_){ data = opts.body; } }
-    const r = await window.Capacitor.Plugins.CapacitorHttp.request({
-      url, method, headers: opts.headers || {}, data
-    });
-    const ok = r.status >= 200 && r.status < 400;
-    return { ok, status: r.status, json: async()=>r.data, text: async()=>typeof r.data==='string'?r.data:JSON.stringify(r.data) };
-  }
-  return fetch(url, opts);
-}
-
-// ══════════════════════════════════════════════════════
-// STOCKAGE (même pattern que SCOUT IA)
-// ══════════════════════════════════════════════════════
-async function storeLoad(){
-  try{
-    if(window.Capacitor?.Plugins?.Preferences){
-      const r = await window.Capacitor.Plugins.Preferences.get({key:STORE_KEY});
-      return r.value ? JSON.parse(r.value) : null;
-    }
-  }catch(_){}
-  try{ const v = localStorage.getItem(STORE_KEY); return v ? JSON.parse(v) : null; }catch(_){ return null; }
-}
-async function storeSave(data){
-  const s = JSON.stringify(data);
-  try{
-    if(window.Capacitor?.Plugins?.Preferences){
-      await window.Capacitor.Plugins.Preferences.set({key:STORE_KEY, value:s}); return;
-    }
-  }catch(_){}
-  try{ localStorage.setItem(STORE_KEY, s); }catch(_){}
-}
+// IS_CAP, IN_GRIST, apiFetch → shared/grist-client.js
+// AppStorage → shared/storage.js
+const _store = new AppStorage(STORE_KEY);
+const storeLoad = () => _store.load();
+const storeSave = (d) => _store.save(d);
 
 // ══════════════════════════════════════════════════════
 // GRIST — CONNEXION & API
@@ -487,29 +456,12 @@ async function postDetections(records){
   }catch(_){ return false; }
 }
 
-// ══════════════════════════════════════════════════════
-// GPS — SUIVI CONTINU
-// ══════════════════════════════════════════════════════
-function startGPS(){
-  if(!navigator.geolocation) return;
-  gpsWatchId = navigator.geolocation.watchPosition(
-    pos=>{
-      currentGPS = {
-        lat:     pos.coords.latitude,
-        lon:     pos.coords.longitude,
-        acc:     Math.round(pos.coords.accuracy),
-        speed:   pos.coords.speed != null ? +(pos.coords.speed * 3.6).toFixed(1) : null, // m/s → km/h
-        heading: pos.coords.heading != null ? Math.round(pos.coords.heading) : null,
-      };
-      updateGpsStatus();
-    },
-    ()=>{ currentGPS = null; updateGpsStatus(); },
-    {enableHighAccuracy:true, maximumAge:2000, timeout:10000}
-  );
-}
-function stopGPS(){
-  if(gpsWatchId != null){ navigator.geolocation.clearWatch(gpsWatchId); gpsWatchId = null; }
-}
+// GPS → shared/sensors.js (GPSTracker)
+const _gps = new GPSTracker({
+  onChange: pos => { currentGPS = pos; updateGpsStatus(); }
+});
+function startGPS(){ _gps.start(); }
+function stopGPS(){ _gps.stop(); }
 function updateGpsStatus(){
   const el = document.getElementById('sGps');
   if(!el) return;
