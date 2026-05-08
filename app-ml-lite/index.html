@@ -217,8 +217,9 @@ async function updateTrainStats() {
   const stats = await dataset.getClassStats();
   const container = document.getElementById('trainStats');
   const total = Object.values(stats).reduce((n, s) => n + s.total, 0);
-  const minPerClass = Math.min(...Object.values(stats).map(s => s.total), 0);
-  const ready = classes.length >= 2 && Object.keys(stats).length >= 2 && minPerClass >= 5;
+  const counts = Object.values(stats).map(s => s.total);
+  const minPerClass = counts.length ? Math.min(...counts) : 0;
+  const ready = classes.length >= 2 && counts.length >= 2 && minPerClass >= 5;
 
   container.innerHTML = classes.map(c => {
     const n = stats[c]?.total || 0;
