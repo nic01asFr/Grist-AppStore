@@ -260,8 +260,17 @@ body{font-family:var(--f);background:#000;color:var(--tx);font-size:14px;line-he
     <!-- Model info -->
     <div class="smod-section">
       <div class="smod-label">🧠 Modèle embarqué</div>
-      <div class="smod-row">
-        <div class="smod-kv"><div class="smod-kv-k">Modèle</div><div class="smod-kv-v">COCO-SSD</div></div>
+      <div class="sf">
+        <label>Modèle de détection</label>
+        <select id="cfgModel">
+          <option value="lite_mobilenet_v2">COCO-SSD Lite (1.8 Mo, rapide, 80 classes)</option>
+          <option value="mobilenet_v2">COCO-SSD Standard (5.4 Mo, plus précis, 80 classes)</option>
+          <option value="mobilenet_v1">COCO-SSD Legacy (5 Mo, compatible ancien device)</option>
+        </select>
+        <div class="sf-hint">Le modèle Lite est recommandé pour les téléphones. Standard est plus précis mais plus lent. Le changement prend effet au prochain lancement.</div>
+      </div>
+      <div class="smod-row" style="margin-top:12px">
+        <div class="smod-kv"><div class="smod-kv-k">Actif</div><div class="smod-kv-v" id="kvModelName">—</div></div>
         <div class="smod-kv"><div class="smod-kv-k">Classes</div><div class="smod-kv-v">80 objets</div></div>
         <div class="smod-kv"><div class="smod-kv-k">Backend</div><div class="smod-kv-v" id="kvBackend">—</div></div>
         <div class="smod-kv"><div class="smod-kv-k">Inférence</div><div class="smod-kv-v" id="kvInf">—</div></div>
@@ -388,7 +397,7 @@ let lastInfMs   = 0;
 let gristConnOk = false;
 
 let gristConn = {url:'', apiKey:'', docId:''};
-let cfg = {confidence:50, cooldown:5000, flushInterval:3000, snapshots:false};
+let cfg = {confidence:50, cooldown:5000, flushInterval:3000, snapshots:false, modelBase:'lite_mobilenet_v2'};
 
 // Elements DOM (initialisés dans init())
 let videoEl, overlayEl, overlayCtx;
@@ -538,7 +547,7 @@ async function loadModel(){
   setLoadProgress(30, 'Téléchargement COCO-SSD…');
 
   try{
-    model = await cocoSsd.load({base:'lite_mobilenet_v2'}); // modèle léger (~1.8 Mo)
+    model = await cocoSsd.load({base: cfg.modelBase});
     setLoadProgress(100, 'Modèle chargé.');
     return true;
   }catch(e){
@@ -868,6 +877,8 @@ function renderSettings(){
   document.getElementById('cfgCooldown').value = cfg.cooldown;
   document.getElementById('cfgFlush').value    = cfg.flushInterval;
   document.getElementById('cfgSnap').checked   = cfg.snapshots;
+  document.getElementById('cfgModel').value   = cfg.modelBase;
+  document.getElementById('kvModelName').textContent = cfg.modelBase.replace(/_/g,' ');
   updateSettingsStats();
 }
 function updateSettingsStats(){
@@ -887,8 +898,13 @@ async function saveSettings(){
   cfg.cooldown     = +document.getElementById('cfgCooldown').value;
   cfg.flushInterval = +document.getElementById('cfgFlush').value;
   cfg.snapshots    = document.getElementById('cfgSnap').checked;
+  const newModel   = document.getElementById('cfgModel').value;
+  const modelChanged = newModel !== cfg.modelBase;
+  cfg.modelBase    = newModel;
 
   await storeSave({gristConn, cfg});
+
+  if(modelChanged) toast('Modèle changé — rechargez l\'app pour appliquer');
 
   if(detecting){ stopFlush(); startFlush(); } // relancer avec nouveau interval
   updateSyncStatus();
