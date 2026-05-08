@@ -338,6 +338,7 @@ const FIELDS = [
   {id:'date_visite',           label:'Date de visite',        type:'Date',    req:false},
   {id:'statut',                label:'Statut',                type:'Choice',  req:false},
   {id:'audio',                 label:'Audio',                 type:'Attachments', req:false},
+  {id:'photo',                 label:'Photo',                 type:'Attachments', req:false},
   {id:'coordonnees_gps',       label:'Coordonnées GPS',       type:'Text',    req:false},
 ];
 
@@ -817,11 +818,15 @@ async function saveRecord(){
   const fields={};
   const today=Math.floor(Date.now()/1000); // timestamp Unix pour Date Grist
 
-  // Upload audio PJ si disponible
-  let audioAttId=null;
+  // Upload PJ (audio + photo) si disponibles
+  let audioAttId=null, photoAttId=null;
   if(audioBlob && gristConn.url){
     setStatus('Upload audio…','info');
     audioAttId=await uploadAudioAttachment(audioBlob);
+  }
+  if(photoBase64 && gristConn.url){
+    setStatus('Upload photo…','info');
+    photoAttId=await uploadPhotoAttachment(photoBase64);
   }
 
   // GPS structuré
@@ -839,6 +844,7 @@ async function saveRecord(){
     ['date_visite',today],
     ['statut','à traiter'],
     ['audio',audioAttId?['L',audioAttId]:null],
+    ['photo',photoAttId?['L',photoAttId]:null],
     ['coordonnees_gps',gpsStr],
   ].forEach(([f,v])=>{const k=col(f);if(k&&v!=null)fields[k]=v;});
 
@@ -897,6 +903,38 @@ async function uploadAudioAttachment(blob){
       if(r.ok){const ids=await r.json();return ids[0]||null;}
     }
   }catch(e){console.warn('Attachment upload failed:',e);}
+  return null;
+}
+
+async function uploadPhotoAttachment(b64){
+  if(!b64 || !gristConn.url) return null;
+  try{
+    const fname='photo_'+new Date().toISOString().replace(/[:.]/g,'-')+'.jpg';
+    const bin=atob(b64), arr=new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+    const blob=new Blob([arr],{type:'image/jpeg'});
+    if(IS_CAP){
+      const boundary='----ScoutIA'+Date.now();
+      const body='--'+boundary+'\r\nContent-Disposition: form-data; name="upload"; filename="'+fname+'"\r\nContent-Type: image/jpeg\r\nContent-Transfer-Encoding: base64\r\n\r\n'+b64+'\r\n--'+boundary+'--\r\n';
+      const r=await window.Capacitor.Plugins.CapacitorHttp.request({
+        url: gristBase()+'/docs/'+gristConn.docId+'/attachments',
+        method:'POST',
+        headers:{'Authorization':'Bearer '+gristConn.apiKey,'Content-Type':'multipart/form-data; boundary='+boundary},
+        data: body
+      });
+      if(r.status>=200 && r.status<400){
+        const ids=Array.isArray(r.data)?r.data:(r.data||[]);
+        return ids[0]||null;
+      }
+    } else {
+      const form=new FormData();
+      form.append('upload',blob,fname);
+      const r=await fetch(gristBase()+'/docs/'+gristConn.docId+'/attachments',{
+        method:'POST', headers:{'Authorization':'Bearer '+gristConn.apiKey}, body:form
+      });
+      if(r.ok){const ids=await r.json();return ids[0]||null;}
+    }
+  }catch(e){console.warn('Photo upload failed:',e);}
   return null;
 }
 
