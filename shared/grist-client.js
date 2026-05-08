@@ -151,4 +151,40 @@ class GristClient {
     await this.updateRecords(tableId, [{ id: recordId, fields: { [colId]: ['L', attId] } }]);
     return attId;
   }
+
+  async apply(actions) {
+    if (IN_GRIST) return await grist.docApi.applyUserActions(actions);
+    const r = await apiFetch(
+      this.baseUrl + '/docs/' + this.docId + '/apply',
+      { method: 'POST', headers: this.headers, body: JSON.stringify(actions) }
+    );
+    if (!r.ok) throw new Error('apply failed: HTTP ' + r.status);
+    return await r.json();
+  }
+
+  async upsert(tableId, records, opts = {}) {
+    let url = this.baseUrl + '/docs/' + this.docId + '/tables/' + tableId + '/records';
+    const params = [];
+    if (opts.onMany)    params.push('onmany=' + opts.onMany);
+    if (opts.noAdd)     params.push('noadd=true');
+    if (opts.noUpdate)  params.push('noupdate=true');
+    if (params.length)  url += '?' + params.join('&');
+    const body = { records: records.map(r => ({ require: r.require, fields: r.fields })) };
+    const r = await apiFetch(url, { method: 'PUT', headers: this.headers, body: JSON.stringify(body) });
+    return r.ok;
+  }
+
+  async sql(query, args = [], timeout = 5000) {
+    const r = await apiFetch(
+      this.baseUrl + '/docs/' + this.docId + '/sql',
+      { method: 'POST', headers: this.headers, body: JSON.stringify({ sql: query, args, timeout }) }
+    );
+    if (!r.ok) throw new Error('SQL error: HTTP ' + r.status);
+    return (await r.json()).records || [];
+  }
+
+  async getToken(readOnly = false) {
+    if (IN_GRIST) return await grist.docApi.getAccessToken({ readOnly });
+    return { token: this.apiKey, baseUrl: this.baseUrl };
+  }
 }
