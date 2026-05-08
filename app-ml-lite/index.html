@@ -65,6 +65,28 @@ body{font-family:var(--f);background:var(--bg);color:var(--tx);font-size:14px;ov
 .loading-title{font-size:18px;font-weight:700;color:var(--app)}
 .loading-sub{font-size:12px;color:var(--tx3)}
 
+/* Gallery */
+.gallery-section{padding:12px}
+.gallery-class{margin-bottom:16px}
+.gallery-class-hdr{font-size:12px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between}
+.gallery-class-hdr button{background:none;border:none;color:var(--cr);font-size:11px;cursor:pointer;font-weight:600}
+.gallery-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:4px}
+.gallery-thumb{position:relative;aspect-ratio:1;border-radius:6px;overflow:hidden;background:var(--bg3)}
+.gallery-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.gallery-thumb .gal-del{position:absolute;top:2px;right:2px;width:20px;height:20px;border-radius:50%;background:rgba(0,0,0,.7);color:#fff;border:none;font-size:12px;cursor:pointer;display:none;align-items:center;justify-content:center;line-height:1}
+.gallery-thumb:hover .gal-del,.gallery-thumb:active .gal-del{display:flex}
+
+/* Saved models */
+.saved-models{padding:12px;border-top:1px solid var(--bd);margin-top:8px}
+.saved-hdr{font-size:12px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px}
+.saved-card{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);padding:10px 12px;margin-bottom:8px;display:flex;align-items:center;gap:10px}
+.saved-info{flex:1;min-width:0}
+.saved-name{font-size:13px;font-weight:600}
+.saved-meta{font-size:11px;color:var(--tx3)}
+.saved-actions{display:flex;gap:4px}
+.saved-btn{padding:5px 10px;border-radius:6px;border:1px solid var(--bd2);background:transparent;color:var(--tx2);font-size:11px;cursor:pointer;font-family:var(--f)}
+.saved-btn:active{background:var(--bg3)}
+
 /* Toast */
 #toast{position:fixed;bottom:calc(70px + var(--sb));left:50%;transform:translateX(-50%) translateY(16px);background:var(--bg2);border:1px solid var(--bd2);border-radius:var(--r2);padding:10px 20px;font-size:13px;font-weight:600;z-index:200;opacity:0;transition:all .25s;pointer-events:none}
 #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
@@ -101,6 +123,8 @@ body{font-family:var(--f);background:var(--bg);color:var(--tx);font-size:14px;ov
     <div class="train-log" id="trainLog">Prêt. Capturez au moins 10 images par classe puis entraînez.</div>
     <button class="btn-train" id="btnTrain" onclick="startTraining()" disabled>🧠 Entraîner le modèle</button>
   </div>
+  <div class="gallery-section" id="gallery"></div>
+  <div class="saved-models" id="savedModels"></div>
 </div>
 
 <!-- Screen: Use -->
@@ -270,6 +294,116 @@ async function startTraining() {
   btn.disabled = false;
 }
 
+// ══ GALLERY (revoir / supprimer des samples) ══
+async function renderGallery() {
+  const container = document.getElementById('gallery');
+  const samples = await dataset.listSamples();
+  if (!samples.length) { container.innerHTML = '<div style="text-align:center;color:var(--tx3);font-size:12px;padding:8px">Aucune capture.</div>'; return; }
+
+  const byClass = {};
+  samples.forEach(s => { (byClass[s.label] = byClass[s.label] || []).push(s); });
+
+  let html = '';
+  for (const cls of classes) {
+    const items = byClass[cls] || [];
+    if (!items.length) continue;
+    html += `<div class="gallery-class">
+      <div class="gallery-class-hdr"><span>${cls} (${items.length})</span><button onclick="deleteClassSamples('${cls}')">Tout supprimer</button></div>
+      <div class="gallery-grid">`;
+    for (const s of items) {
+      const url = URL.createObjectURL(s.image);
+      html += `<div class="gallery-thumb">
+        <img src="${url}" loading="lazy">
+        <button class="gal-del" onclick="deleteSample(${s.id})">✕</button>
+      </div>`;
+    }
+    html += '</div></div>';
+  }
+  container.innerHTML = html;
+}
+
+async function deleteSample(id) {
+  await dataset.rejectSample(id);
+  await updateCounts();
+  await updateTrainStats();
+  await renderGallery();
+  toast('Image supprimée');
+}
+
+async function deleteClassSamples(cls) {
+  if (!confirm(`Supprimer toutes les images "${cls}" ?`)) return;
+  const samples = await dataset.listSamples({ label: cls });
+  for (const s of samples) await dataset.rejectSample(s.id);
+  await updateCounts();
+  await updateTrainStats();
+  await renderGallery();
+  toast(`${samples.length} images supprimées`);
+}
+
+// ══ SAVED MODELS ══
+async function renderSavedModels() {
+  const container = document.getElementById('savedModels');
+  const modelInfo = trainer.getModelInfo();
+  const keys = await listSavedModels();
+
+  if (!keys.length && !modelInfo) {
+    container.innerHTML = '<div class="saved-hdr">Modèles sauvés</div><div style="color:var(--tx3);font-size:12px">Aucun modèle sauvé.</div>';
+    return;
+  }
+
+  let html = '<div class="saved-hdr">Modèles sauvés</div>';
+  for (const key of keys) {
+    const classesStored = localStorage.getItem('ml-classes-' + key);
+    const cls = classesStored ? JSON.parse(classesStored) : [];
+    html += `<div class="saved-card">
+      <div class="saved-info">
+        <div class="saved-name">${key}</div>
+        <div class="saved-meta">${cls.length} classes : ${cls.join(', ')}</div>
+      </div>
+      <div class="saved-actions">
+        <button class="saved-btn" onclick="loadSavedModel('${key}')">Charger</button>
+        <button class="saved-btn" onclick="downloadModel('${key}')">⬇</button>
+        <button class="saved-btn" onclick="deleteSavedModel('${key}')" style="color:var(--cr)">✕</button>
+      </div>
+    </div>`;
+  }
+  container.innerHTML = html;
+}
+
+async function listSavedModels() {
+  const keys = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith('ml-classes-')) keys.push(k.replace('ml-classes-', ''));
+  }
+  return keys;
+}
+
+async function loadSavedModel(name) {
+  try {
+    await trainer.load(name);
+    toast(`Modèle "${name}" chargé — allez dans Utiliser`);
+  } catch(e) { toast('Erreur : ' + e.message); }
+}
+
+async function downloadModel(name) {
+  try {
+    const model = await tf.loadLayersModel('indexeddb://' + name);
+    await model.save('downloads://' + name);
+    toast('Modèle téléchargé');
+  } catch(e) { toast('Erreur : ' + e.message); }
+}
+
+async function deleteSavedModel(name) {
+  if (!confirm(`Supprimer le modèle "${name}" ?`)) return;
+  try {
+    await tf.io.removeModel('indexeddb://' + name);
+    localStorage.removeItem('ml-classes-' + name);
+    renderSavedModels();
+    toast('Modèle supprimé');
+  } catch(e) { toast('Erreur : ' + e.message); }
+}
+
 // ══ USE (prédiction en temps réel) ══
 function startPrediction() {
   if (!trainer.classifier) { toast('Entraînez d\'abord un modèle'); return; }
@@ -308,7 +442,7 @@ function switchTab(name) {
   document.querySelector(`.tab[onclick*="${name}"]`).classList.add('on');
   document.getElementById('screen-' + name).classList.add('on');
 
-  if (name === 'train') updateTrainStats();
+  if (name === 'train') { updateTrainStats(); renderGallery(); renderSavedModels(); }
   if (name === 'use') startPrediction();
   else stopPrediction();
 }
