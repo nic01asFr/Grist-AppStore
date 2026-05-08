@@ -1,5 +1,5 @@
 const CACHE = 'scoutia-app-v1';
-const ASSETS = ['./', './index.html', '../icons/icon-192.svg'];
+const ASSETS = ['./', './index.html', '../icons/scout-ia.svg'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).catch(()=>{}));

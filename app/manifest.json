@@ -1,0 +1,18 @@
+{
+  "name": "SCOUT IA",
+  "short_name": "SCOUT IA",
+  "description": "Saisie vocale terrain assistée par IA — transcription, extraction, synchronisation Grist",
+  "start_url": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#085041",
+  "theme_color": "#085041",
+  "icons": [
+    {
+      "src": "../icons/scout-ia.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
