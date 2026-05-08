@@ -117,6 +117,12 @@ body{font-family:var(--f);background:var(--bg);color:var(--tx);font-size:14px;li
 .sg-i{font-size:11px;color:var(--tx3);margin-top:3px;line-height:1.5}
 .dv{height:1px;background:var(--bd);margin:14px 0}
 .cap-badge{display:inline-flex;align-items:center;gap:4px;background:rgba(8,80,65,.15);color:var(--ct);font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;margin-left:6px}
+.photo-row{display:flex;gap:10px;align-items:center;margin-top:10px}
+.photo-row .br{width:48px;height:48px;font-size:20px;margin:0;box-shadow:0 2px 8px rgba(15,110,86,.25)}
+.photo-preview{flex:1;max-height:180px;border-radius:var(--r);overflow:hidden;display:none;position:relative;background:var(--bg3)}
+.photo-preview img{width:100%;height:100%;object-fit:cover;display:block}
+.photo-preview .photo-x{position:absolute;top:4px;right:4px;width:24px;height:24px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;border:none;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.photo-input{display:none}
 </style>
 </head>
 <body>
@@ -231,6 +237,14 @@ body{font-family:var(--f);background:var(--bg);color:var(--tx);font-size:14px;li
       </div>
       <div class="tmr" id="timer"></div>
     </div>
+    <div class="photo-row">
+      <button class="br" onclick="document.getElementById('photoInput').click()" title="Prendre une photo">📷</button>
+      <div class="photo-preview" id="photoPreview">
+        <img id="photoImg">
+        <button class="photo-x" onclick="clearPhoto()">✕</button>
+      </div>
+      <input type="file" accept="image/*" capture="environment" class="photo-input" id="photoInput" onchange="onPhotoCapture(this)">
+    </div>
   </div>
 
   <div class="panel" id="panelTranscription" style="display:none">
@@ -239,6 +253,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--tx);font-size:14px;li
     <div style="margin-top:10px;display:flex;gap:8px">
       <button class="btn bs" onclick="retranscribe()" style="flex:0;white-space:nowrap;font-size:12px;padding:6px 12px">↻ Retranscrire</button>
       <button class="btn bp" onclick="extractFields()" id="btnExtract" style="font-size:12px;padding:6px 12px">✦ Analyser par IA</button>
+      <button class="btn bp" onclick="analyzePhoto()" id="btnPhotoAnalyze" style="font-size:12px;padding:6px 12px;display:none;background:var(--ca)">📷 Analyser la photo</button>
     </div>
   </div>
 
@@ -307,7 +322,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--tx);font-size:14px;li
 let cfg = { provider:'sspcloud', apiKey:'', baseUrl:'https://llm.lab.sspcloud.fr/api', sttModel:'gemma4-31b', llmModel:'gpt-oss:20b' };
 let gristConn = { url:'', apiKey:'', docId:'' };
 let mapping = { tableId:'', columns:{} };
-let gristRecord = null, transcription = '', audioBlob = null, urgenceVal = '', gpsCoords = null;
+let gristRecord = null, transcription = '', audioBlob = null, urgenceVal = '', gpsCoords = null, photoBase64 = null;
 let mediaRec = null, audioChunks = [], timerInt = null, waveInt = null, elapsed = 0;
 let tableCols = {};
 
@@ -618,6 +633,106 @@ function showTbox(t,ld){const b=document.getElementById('tbox');b.className='tbo
 function showManualTbox(){document.getElementById('panelTranscription').style.display='block';const b=document.getElementById('tbox');b.className='tbox';b.innerHTML='';const ta=document.createElement('textarea');ta.style.cssText='width:100%;border:none;background:transparent;font-family:inherit;font-size:13px;resize:vertical;min-height:80px;outline:none;color:var(--tx)';ta.placeholder='Saisir ou coller le texte ici…';ta.oninput=()=>{transcription=ta.value;};b.appendChild(ta);ta.focus();}
 async function retranscribe(){if(!audioBlob){setStatus('Aucun audio','err');return;}await transcribeAudio(audioBlob);}
 
+// ══ PHOTO CAPTURE + VLM ══
+function onPhotoCapture(input){
+  const file = input.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    photoBase64 = e.target.result.split(',')[1];
+    document.getElementById('photoImg').src = e.target.result;
+    document.getElementById('photoPreview').style.display = 'block';
+    document.getElementById('btnPhotoAnalyze').style.display = '';
+    document.getElementById('panelTranscription').style.display = 'block';
+    setStep(3);
+  };
+  reader.readAsDataURL(file);
+}
+function clearPhoto(){
+  photoBase64 = null;
+  document.getElementById('photoPreview').style.display = 'none';
+  document.getElementById('btnPhotoAnalyze').style.display = 'none';
+  document.getElementById('photoInput').value = '';
+}
+
+async function analyzePhoto(){
+  if(!photoBase64){setStatus('Aucune photo','err');return;}
+  if(!cfg.apiKey){setStatus('Configurez la clé API (Paramètres)','err');return;}
+  setStatus('Analyse VLM de la photo…','info');
+  document.getElementById('btnPhotoAnalyze').disabled = true;
+  document.getElementById('panelFields').style.display = 'block';
+
+  const visionPrompt = `Tu es un assistant terrain du Cerema. Analyse cette photo d'infrastructure et extrais les données en JSON valide uniquement (sans markdown) :
+- commentaire_structure (string) : description professionnelle de ce que tu observes, 2-3 phrases
+- type_observation (string) : parmi [Voirie, Ouvrage d'art, Signalisation, Espaces verts, Assainissement, Éclairage public, Mobilier urbain, Autre]
+- localisation_precise (string) : éléments de localisation visibles (panneau, nom de rue, repères)
+- niveau_urgence (string) : parmi [faible, moyen, élevé, critique] selon la gravité visible
+- actions_requises (string) : actions concrètes à réaliser
+- materiaux_concernes (string) : matériaux visibles
+- surface_estimee (number|null) : surface estimée en m² si évaluable
+- statut (string) : toujours "à traiter"`;
+
+  try {
+    const isOllama = cfg.baseUrl.includes('sspcloud');
+    const cBox = document.getElementById('f-commentaire_structure');
+    let full = '';
+
+    if(isOllama){
+      const ollamaUrl = cfg.baseUrl.replace('/api','/ollama') + '/api/chat';
+      const resp = await fetch(ollamaUrl, {
+        method:'POST',
+        headers:{'Authorization':'Bearer '+cfg.apiKey, 'Content-Type':'application/json'},
+        body: JSON.stringify({
+          model: cfg.sttModel, // gemma4-31b supporte la vision
+          messages: [{role:'user', content: visionPrompt, images: [photoBase64]}]
+        })
+      });
+      if(!resp.ok) throw new Error('HTTP '+resp.status);
+      const reader = resp.body.getReader(), dec = new TextDecoder();
+      while(true){
+        const {done,value} = await reader.read(); if(done) break;
+        for(const line of dec.decode(value,{stream:true}).split('\n')){
+          if(!line.trim()) continue;
+          try{ const j=JSON.parse(line); if(j.message?.content){full+=j.message.content; if(cBox) cBox.value=full;} }catch(_){}
+        }
+      }
+    } else {
+      const resp = await fetch(cfg.baseUrl+'/chat/completions', {
+        method:'POST',
+        headers:{'Authorization':'Bearer '+cfg.apiKey, 'Content-Type':'application/json'},
+        body: JSON.stringify({
+          model: cfg.llmModel,
+          messages: [{role:'user', content:[
+            {type:'text', text: visionPrompt},
+            {type:'image_url', image_url:{url:'data:image/jpeg;base64,'+photoBase64}}
+          ]}],
+          temperature:0.1, stream:true
+        })
+      });
+      if(!resp.ok) throw new Error('HTTP '+resp.status);
+      const reader = resp.body.getReader(), dec = new TextDecoder();
+      while(true){
+        const {done,value} = await reader.read(); if(done) break;
+        for(const line of dec.decode(value,{stream:true}).split('\n')){
+          if(!line.startsWith('data:')) continue;
+          const d=line.slice(5).trim(); if(d==='[DONE]') continue;
+          try{ const j=JSON.parse(d); const tk=j.choices?.[0]?.delta?.content; if(tk){full+=tk; if(cBox) cBox.value=full;} }catch(_){}
+        }
+      }
+    }
+
+    const r = JSON.parse(full.replace(/```json|```/g,'').trim());
+    fillFields(r);
+    if(transcription) {} else { transcription = '[Analyse photo]'; showTbox(r.commentaire_structure || full, false); }
+    document.getElementById('btnSave').disabled = false;
+    setStep(4);
+    setStatus('Photo analysée — vérifiez et enregistrez','ok');
+  } catch(e){
+    setStatus('Erreur VLM : '+e.message,'err');
+  }
+  document.getElementById('btnPhotoAnalyze').disabled = false;
+}
+
 // ══ LLM EXTRACTION ══
 async function extractFields(){
   if(!transcription){setStatus('Aucune transcription','err');return;}
@@ -791,7 +906,7 @@ function show(id){document.getElementById(id).style.display='block';}
 function hide(id){document.getElementById(id).style.display='none';}
 function setStatus(msg,type){const el=document.getElementById('statusMsg');el.textContent=msg;el.className='s-'+type;}
 function setStep(n){for(let i=1;i<=4;i++){const el=document.getElementById('step'+i);if(!el)continue;el.classList.remove('active','done');if(i<n){el.classList.add('done');el.querySelector('.step-n').textContent='✓';}else if(i===n){el.classList.add('active');el.querySelector('.step-n').textContent=i;}else el.querySelector('.step-n').textContent=i;}}
-function clearAll(){transcription='';audioBlob=null;urgenceVal='';gpsCoords=null;document.getElementById('panelTranscription').style.display='none';document.getElementById('panelFields').style.display='none';document.getElementById('btnSave').disabled=true;['commentaire_structure','type_observation','localisation_precise','actions_requises','materiaux_concernes','surface_estimee','coordonnees_gps'].forEach(k=>{const el=document.getElementById('f-'+k);if(el)el.value='';});document.querySelectorAll('.up').forEach(p=>p.classList.remove('sel'));setStep(2);setStatus('Prêt','info');}
+function clearAll(){transcription='';audioBlob=null;urgenceVal='';gpsCoords=null;clearPhoto();document.getElementById('panelTranscription').style.display='none';document.getElementById('panelFields').style.display='none';document.getElementById('btnSave').disabled=true;['commentaire_structure','type_observation','localisation_precise','actions_requises','materiaux_concernes','surface_estimee','coordonnees_gps'].forEach(k=>{const el=document.getElementById('f-'+k);if(el)el.value='';});document.querySelectorAll('.up').forEach(p=>p.classList.remove('sel'));setStep(2);setStatus('Prêt','info');}
 </script>
 </body>
 </html>
