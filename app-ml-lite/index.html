@@ -156,7 +156,15 @@ let predInterval = null;
 async function init() {
   const saved = await store.load();
   if (saved?.classes) classes = saved.classes;
-  if (!classes.length) classes = ['Classe A', 'Classe B'];
+  if (!classes.length) {
+    // Pas de classes par défaut — forcer l'utilisateur à nommer
+    const c1 = prompt('Nom de la 1ère classe (ex: Fissure)');
+    const c2 = prompt('Nom de la 2ème classe (ex: Sain)');
+    if (c1?.trim()) classes.push(c1.trim());
+    if (c2?.trim()) classes.push(c2.trim());
+    if (classes.length < 2) classes = ['Classe 1', 'Classe 2'];
+    await store.save({ classes });
+  }
 
   await trainer.init(msg => document.getElementById('loadStatus').textContent = msg);
 
@@ -308,7 +316,7 @@ async function renderGallery() {
     const items = byClass[cls] || [];
     if (!items.length) continue;
     html += `<div class="gallery-class">
-      <div class="gallery-class-hdr"><span>${cls} (${items.length})</span><button onclick="deleteClassSamples('${cls}')">Tout supprimer</button></div>
+      <div class="gallery-class-hdr"><span>${cls} (${items.length})</span><span><button onclick="renameClass('${cls}')" style="color:var(--app);margin-right:8px">Renommer</button><button onclick="deleteClassSamples('${cls}')">Supprimer</button></span></div>
       <div class="gallery-grid">`;
     for (const s of items) {
       const url = URL.createObjectURL(s.image);
@@ -328,6 +336,29 @@ async function deleteSample(id) {
   await updateTrainStats();
   await renderGallery();
   toast('Image supprimée');
+}
+
+async function renameClass(oldName) {
+  const newName = prompt(`Renommer "${oldName}" en :`, oldName);
+  if (!newName?.trim() || newName.trim() === oldName) return;
+  const name = newName.trim();
+  if (classes.includes(name)) { toast('Ce nom existe déjà'); return; }
+
+  // Renommer dans la liste
+  classes[classes.indexOf(oldName)] = name;
+  await store.save({ classes });
+
+  // Renommer dans tous les samples
+  const samples = await dataset.listSamples({ label: oldName });
+  for (const s of samples) {
+    await dataset.validateSample(s.id, { label: name });
+  }
+
+  renderClassButtons();
+  await updateCounts();
+  await updateTrainStats();
+  await renderGallery();
+  toast(`"${oldName}" → "${name}" (${samples.length} images)`);
 }
 
 async function deleteClassSamples(cls) {
