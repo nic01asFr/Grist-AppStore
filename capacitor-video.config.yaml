@@ -1,0 +1,13 @@
+appId: fr.cerema.scoutvision
+appName: SCOUT Vision
+webDir: app-video
+plugins:
+  Preferences:
+    group: ScoutVisionConfig
+  CapacitorHttp:
+    enabled: true
+android:
+  allowMixedContent: false
+  captureInput: true
+  webContentsDebuggingEnabled: false
+  # getUserMedia (caméra + GPS) est exposé nativement par la WebView Android

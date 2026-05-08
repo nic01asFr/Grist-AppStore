@@ -1,0 +1,118 @@
+name: Build APK
+
+on:
+  push:
+    tags: ['v*', 'vision-v*']
+  workflow_dispatch:
+    inputs:
+      app:
+        description: 'Application à compiler'
+        required: true
+        type: choice
+        options:
+          - scout-ia
+          - scout-vision
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Déterminer quelle app compiler ──
+      - name: Resolve app config
+        id: app
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/vision-v* ]] || [[ "${{ github.event.inputs.app }}" == "scout-vision" ]]; then
+            echo "name=SCOUT Vision"                >> "$GITHUB_OUTPUT"
+            echo "id=fr.cerema.scoutvision"         >> "$GITHUB_OUTPUT"
+            echo "webdir=app-video"                 >> "$GITHUB_OUTPUT"
+            echo "artifact=scout-vision-apk"        >> "$GITHUB_OUTPUT"
+            echo "release_name=SCOUT Vision"        >> "$GITHUB_OUTPUT"
+            echo "perms=CAMERA ACCESS_FINE_LOCATION ACCESS_COARSE_LOCATION" >> "$GITHUB_OUTPUT"
+            echo "features=android.hardware.camera"  >> "$GITHUB_OUTPUT"
+          else
+            echo "name=SCOUT IA"                    >> "$GITHUB_OUTPUT"
+            echo "id=fr.cerema.scoutia"             >> "$GITHUB_OUTPUT"
+            echo "webdir=app"                       >> "$GITHUB_OUTPUT"
+            echo "artifact=scout-ia-apk"            >> "$GITHUB_OUTPUT"
+            echo "release_name=SCOUT IA"            >> "$GITHUB_OUTPUT"
+            echo "perms=RECORD_AUDIO MODIFY_AUDIO_SETTINGS" >> "$GITHUB_OUTPUT"
+            echo "features="                        >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Capacitor
+        run: |
+          npm install -g @capacitor/cli@6
+          npm install @capacitor/core@6 @capacitor/android@6 @capacitor/preferences@6
+
+      # ── Copier les modules partagés dans le webdir ──
+      - name: Copy shared modules into app
+        run: |
+          cp -r shared/ "${{ steps.app.outputs.webdir }}/shared/"
+          echo "Shared modules copied into ${{ steps.app.outputs.webdir }}/shared/"
+          ls -la "${{ steps.app.outputs.webdir }}/shared/"
+
+      - name: Init & sync Capacitor
+        run: |
+          npx cap init "${{ steps.app.outputs.name }}" "${{ steps.app.outputs.id }}" --web-dir "${{ steps.app.outputs.webdir }}" 2>/dev/null || true
+          npx cap add android 2>/dev/null || true
+          npx cap sync android
+
+      # ── Injecter les permissions Android ──
+      - name: Patch AndroidManifest
+        run: |
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          for PERM in ${{ steps.app.outputs.perms }}; do
+            if ! grep -q "android.permission.${PERM}" "$MANIFEST"; then
+              sed -i "s|</manifest>|    <uses-permission android:name=\"android.permission.${PERM}\" />\n</manifest>|" "$MANIFEST"
+            fi
+          done
+
+          # Inject uses-feature if needed
+          FEATURES="${{ steps.app.outputs.features }}"
+          if [ -n "$FEATURES" ]; then
+            for FEAT in $FEATURES; do
+              if ! grep -q "$FEAT" "$MANIFEST"; then
+                sed -i "s|</manifest>|    <uses-feature android:name=\"${FEAT}\" android:required=\"true\" />\n</manifest>|" "$MANIFEST"
+              fi
+            done
+          fi
+
+          echo "=== Permissions & features ==="
+          grep "uses-permission\|uses-feature" "$MANIFEST"
+
+      - name: Build APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.app.outputs.artifact }}
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: android/app/build/outputs/apk/debug/app-debug.apk
+          name: ${{ steps.app.outputs.release_name }} ${{ github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

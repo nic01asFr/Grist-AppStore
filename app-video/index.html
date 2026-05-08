@@ -1,0 +1,1030 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0d1117">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="SCOUT Vision">
+<link rel="manifest" href="manifest.json">
+<title>SCOUT Vision</title>
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<script src="../shared/grist-client.js"></script>
+<script src="../shared/storage.js"></script>
+<script src="../shared/sensors.js"></script>
+<script src="../shared/batch-sync.js"></script>
+<style>
+:root{--bg:#0d1117;--bg2:#161b22;--bg3:#21262d;--bd:rgba(255,255,255,.1);--bd2:rgba(255,255,255,.18);--tx:#e6edf3;--tx2:#8b949e;--tx3:#484f58;--ct:#1f6feb;--ct-m:#58a6ff;--ct-l:rgba(56,139,253,.15);--cr:#f85149;--cr-l:rgba(248,81,73,.15);--cg:#3fb950;--cg-l:rgba(63,185,80,.15);--ca:#d29922;--ca-l:rgba(210,153,34,.15);--r:8px;--r2:12px;--f:'Segoe UI',system-ui,sans-serif;--st:env(safe-area-inset-top,0px);--sb:env(safe-area-inset-bottom,0px)}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--f);background:#000;color:var(--tx);font-size:14px;line-height:1.5;overflow:hidden;height:100dvh;width:100vw}
+
+/* ── LOADING ── */
+#loadScreen{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:100;flex-direction:column;gap:20px;padding:32px}
+.ld-icon{font-size:48px;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.ld-title{font-size:22px;font-weight:700;letter-spacing:.04em;color:var(--ct-m)}
+.ld-sub{font-size:13px;color:var(--tx2);text-align:center;max-width:260px;line-height:1.6}
+.ld-bar{width:240px;height:4px;background:var(--bg3);border-radius:2px;overflow:hidden}
+.ld-fill{height:100%;background:var(--ct-m);border-radius:2px;transition:width .3s;width:0%}
+.ld-status{font-size:11px;color:var(--tx3);text-align:center}
+.ld-err{background:var(--cr-l);border:1px solid var(--cr);border-radius:var(--r);padding:12px 16px;font-size:12px;color:var(--cr);max-width:280px;text-align:center;display:none}
+
+/* ── MAIN VIEW ── */
+#mainView{position:fixed;inset:0;display:none}
+#videoWrap{position:absolute;inset:0;background:#000}
+#cam{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover}
+#overlay{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none}
+
+/* ── STATS BAR (top) ── */
+#statsBar{position:absolute;top:0;left:0;right:0;padding:calc(8px + var(--st)) 12px 8px;background:linear-gradient(to bottom,rgba(0,0,0,.75),transparent);display:flex;gap:8px;align-items:center;z-index:10}
+.s-pill{background:rgba(0,0,0,.55);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.1);border-radius:20px;padding:4px 10px;font-size:11px;font-weight:600;color:var(--tx2);display:flex;align-items:center;gap:4px;white-space:nowrap}
+.s-pill.ok{color:var(--cg);border-color:rgba(63,185,80,.3)}
+.s-pill.warn{color:var(--ca);border-color:rgba(210,153,34,.3)}
+.s-pill.err{color:var(--cr);border-color:rgba(248,81,73,.3)}
+.s-dot{width:6px;height:6px;border-radius:50%;background:currentColor;flex-shrink:0}
+#statsBar .s-title{flex:1;font-size:13px;font-weight:700;color:#fff;letter-spacing:.03em;text-shadow:0 1px 4px rgba(0,0,0,.8)}
+
+/* ── CONTROLS (bottom) ── */
+#ctrlBar{position:absolute;bottom:0;left:0;right:0;padding:12px 16px calc(16px + var(--sb));background:linear-gradient(to top,rgba(0,0,0,.8),transparent);display:flex;align-items:center;justify-content:space-between;gap:12px;z-index:10}
+#btnDetect{flex:1;max-width:200px;padding:14px 20px;border-radius:32px;border:none;font-size:15px;font-weight:700;font-family:var(--f);cursor:pointer;-webkit-tap-highlight-color:transparent;transition:all .15s;background:var(--ct-m);color:#fff;letter-spacing:.02em}
+#btnDetect.active{background:var(--cr);animation:btnPulse 1.4s infinite}
+@keyframes btnPulse{0%,100%{box-shadow:0 0 0 0 rgba(248,81,73,.4)}60%{box-shadow:0 0 0 12px rgba(248,81,73,0)}}
+#btnDetect:active{filter:brightness(.88)}
+.cb-ic{width:48px;height:48px;border-radius:50%;border:1.5px solid rgba(255,255,255,.25);background:rgba(0,0,0,.5);backdrop-filter:blur(8px);color:var(--tx);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent;transition:all .15s;flex-shrink:0}
+.cb-ic:active{background:rgba(255,255,255,.15)}
+.cb-ic.on{border-color:var(--ct-m);color:var(--ct-m)}
+
+/* ── SESSION COUNTER ── */
+#sessionBadge{position:absolute;bottom:calc(80px + var(--sb));left:50%;transform:translateX(-50%);background:rgba(0,0,0,.65);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.12);border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;color:var(--tx2);z-index:10;display:none;text-align:center;white-space:nowrap}
+#sessionBadge span{color:var(--ct-m)}
+
+/* ── LOG PANEL ── */
+#logPanel{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:50;display:none;align-items:flex-end}
+#logPanel.open{display:flex}
+#logBox{background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-height:70vh;display:flex;flex-direction:column;padding-bottom:var(--sb)}
+#logHdr{padding:16px 16px 12px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--bd)}
+#logHdr h3{flex:1;font-size:15px;font-weight:700}
+#logCount{background:var(--ct-l);color:var(--ct-m);font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px}
+.log-close{width:32px;height:32px;border-radius:50%;border:none;background:var(--bg3);color:var(--tx2);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+#logList{overflow-y:auto;flex:1;padding:8px 0}
+.log-item{padding:10px 16px;display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;border-bottom:1px solid var(--bd)}
+.log-item:last-child{border:none}
+.log-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.log-main{min-width:0}
+.log-classe{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.log-meta{font-size:11px;color:var(--tx3)}
+.log-conf{font-size:12px;font-weight:700;padding:2px 7px;border-radius:12px;background:var(--bg3);white-space:nowrap}
+.log-empty{text-align:center;padding:32px;color:var(--tx3);font-size:13px}
+
+/* ── SETTINGS MODAL ── */
+#settingsModal{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);z-index:60;display:none;align-items:flex-end}
+#settingsModal.open{display:flex}
+#settingsBox{background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-height:90vh;overflow-y:auto;padding-bottom:var(--sb)}
+.smod-hdr{padding:16px 16px 14px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--bd);position:sticky;top:0;background:var(--bg);z-index:1}
+.smod-hdr h2{flex:1;font-size:16px;font-weight:700}
+.smod-close{width:32px;height:32px;border-radius:50%;border:none;background:var(--bg3);color:var(--tx2);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.smod-section{padding:16px}
+.smod-section+.smod-section{border-top:1px solid var(--bd)}
+.smod-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--tx3);margin-bottom:12px;display:flex;align-items:center;gap:6px}
+.sf{margin-bottom:12px}
+.sf label{font-size:12px;font-weight:600;color:var(--tx2);display:block;margin-bottom:4px}
+.sf input,.sf select{width:100%;background:var(--bg2);border:1px solid var(--bd2);border-radius:var(--r);padding:10px 12px;font-size:14px;font-family:var(--f);color:var(--tx);outline:none}
+.sf input:focus,.sf select:focus{border-color:var(--ct-m);box-shadow:0 0 0 3px var(--ct-l)}
+.sf select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238b949e'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;background-color:var(--bg2);padding-right:30px}
+.sf-hint{font-size:11px;color:var(--tx3);margin-top:4px;line-height:1.5}
+.conn-status{font-size:12px;padding:8px 12px;border-radius:var(--r);margin-top:8px;display:none}
+.conn-status.ok{display:block;background:var(--cg-l);color:var(--cg)}
+.conn-status.err{display:block;background:var(--cr-l);color:var(--cr)}
+.smod-btn{width:100%;padding:12px;border-radius:var(--r);border:1.5px solid transparent;font-size:14px;font-weight:600;font-family:var(--f);cursor:pointer;-webkit-tap-highlight-color:transparent}
+.smod-btn-p{background:var(--ct-m);color:#fff;border:none}
+.smod-btn-p:active{filter:brightness(.9)}
+.smod-btn-s{background:transparent;border-color:var(--bd2);color:var(--tx2)}
+.smod-btn-s:active{background:var(--bg3)}
+.smod-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.smod-kv{background:var(--bg2);border-radius:var(--r);padding:10px 12px}
+.smod-kv-k{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--tx3);margin-bottom:2px}
+.smod-kv-v{font-size:14px;font-weight:600;color:var(--tx)}
+.toggle-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0}
+.toggle-row label{font-size:13px;color:var(--tx)}
+.toggle{position:relative;width:44px;height:24px;flex-shrink:0}
+.toggle input{opacity:0;width:0;height:0}
+.toggle-track{position:absolute;inset:0;background:var(--bg3);border-radius:12px;transition:.2s;border:1px solid var(--bd2)}
+.toggle input:checked+.toggle-track{background:var(--ct-m);border-color:var(--ct-m)}
+.toggle-track::after{content:'';position:absolute;width:18px;height:18px;background:#fff;border-radius:50%;top:2px;left:2px;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.toggle input:checked+.toggle-track::after{transform:translateX(20px)}
+
+/* ── TOAST ── */
+#toast{position:fixed;bottom:calc(90px + var(--sb));left:50%;transform:translateX(-50%) translateY(20px);background:var(--bg2);border:1px solid var(--bd2);border-radius:var(--r2);padding:10px 16px;font-size:13px;font-weight:600;color:var(--tx);z-index:200;opacity:0;transition:all .25s;pointer-events:none;white-space:nowrap;max-width:calc(100vw - 32px);text-align:center}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* ── PERMISSION SCREEN ── */
+#permScreen{position:fixed;inset:0;background:var(--bg);display:none;align-items:center;justify-content:center;z-index:90;flex-direction:column;gap:20px;padding:32px;text-align:center}
+.perm-icon{font-size:56px}
+.perm-title{font-size:20px;font-weight:700}
+.perm-sub{font-size:13px;color:var(--tx2);max-width:260px;line-height:1.7}
+.perm-btn{background:var(--ct-m);color:#fff;border:none;border-radius:var(--r2);padding:14px 32px;font-size:15px;font-weight:700;font-family:var(--f);cursor:pointer}
+
+/* ── DETECTION COUNT BADGE ── */
+#detBadge{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;z-index:5;display:none}
+.det-ring{width:80px;height:80px;border-radius:50%;border:3px solid rgba(88,166,255,.6);display:flex;align-items:center;justify-content:center;animation:ringPulse 1s infinite}
+@keyframes ringPulse{0%{transform:scale(1);opacity:1}100%{transform:scale(1.4);opacity:0}}
+</style>
+</head>
+<body>
+
+<!-- ══ LOADING SCREEN ══ -->
+<div id="loadScreen">
+  <div class="ld-icon">◎</div>
+  <div class="ld-title">SCOUT Vision</div>
+  <div class="ld-sub">Chargement du modèle de détection embarqué…</div>
+  <div class="ld-bar"><div class="ld-fill" id="ldFill"></div></div>
+  <div class="ld-status" id="ldStatus">Initialisation…</div>
+  <div class="ld-err" id="ldErr"></div>
+</div>
+
+<!-- ══ PERMISSION SCREEN ══ -->
+<div id="permScreen">
+  <div class="perm-icon">📷</div>
+  <div class="perm-title">Accès caméra requis</div>
+  <div class="perm-sub">SCOUT Vision a besoin d'accéder à votre caméra pour analyser le flux vidéo en temps réel.</div>
+  <button class="perm-btn" onclick="requestCamera()">Autoriser la caméra</button>
+</div>
+
+<!-- ══ MAIN VIEW ══ -->
+<div id="mainView">
+  <div id="videoWrap">
+    <video id="cam" autoplay playsinline muted></video>
+    <canvas id="overlay"></canvas>
+  </div>
+
+  <!-- Stats bar -->
+  <div id="statsBar">
+    <span class="s-title">SCOUT Vision</span>
+    <span class="s-pill" id="sFps">-- FPS</span>
+    <span class="s-pill" id="sGps">GPS</span>
+    <span class="s-pill" id="sSync">Grist</span>
+  </div>
+
+  <!-- Session badge -->
+  <div id="sessionBadge"><span id="sBadgeDet">0</span> détections · <span id="sBadgeSync">0</span> sync.</div>
+
+  <!-- Controls -->
+  <div id="ctrlBar">
+    <button class="cb-ic" id="btnCam" onclick="switchCamera()" title="Changer caméra">⟳</button>
+    <button id="btnDetect" onclick="toggleDetection()">▶ Détecter</button>
+    <button class="cb-ic" id="btnLog" onclick="openLog()" title="Journal">☰</button>
+    <button class="cb-ic" id="btnSettings" onclick="openSettings()" title="Paramètres">⚙</button>
+  </div>
+</div>
+
+<!-- ══ LOG PANEL ══ -->
+<div id="logPanel" onclick="closeLog()">
+  <div id="logBox" onclick="e=>e.stopPropagation()">
+    <div id="logHdr">
+      <h3>Détections</h3>
+      <span id="logCount">0</span>
+      <button class="log-close" onclick="closeLog()">✕</button>
+    </div>
+    <div id="logList"><div class="log-empty">Aucune détection encore.<br>Appuyez sur Détecter pour commencer.</div></div>
+  </div>
+</div>
+
+<!-- ══ SETTINGS MODAL ══ -->
+<div id="settingsModal" onclick="closeSettings()">
+  <div id="settingsBox" onclick="event.stopPropagation()">
+    <div class="smod-hdr">
+      <h2>Paramètres</h2>
+      <button class="smod-close" onclick="closeSettings()">✕</button>
+    </div>
+
+    <!-- Grist connection -->
+    <div class="smod-section">
+      <div class="smod-label">🗄 Connexion Grist</div>
+      <div class="sf">
+        <label>URL Grist</label>
+        <input id="cfgUrl" type="url" placeholder="https://grist.numerique.gouv.fr" autocomplete="off" autocorrect="off" spellcheck="false">
+      </div>
+      <div class="sf">
+        <label>Clé API</label>
+        <input id="cfgKey" type="password" placeholder="••••••••••••••••" autocomplete="off">
+        <div class="sf-hint">Profil → Clé API dans Grist</div>
+      </div>
+      <div class="sf">
+        <label>ID Document</label>
+        <input id="cfgDoc" type="text" placeholder="ex: iYGuwn3P9gGi7fEWMKH9V3" autocomplete="off" autocorrect="off" spellcheck="false">
+        <div class="sf-hint">Dernier segment de l'URL du document</div>
+      </div>
+      <div class="conn-status" id="connStatus"></div>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="smod-btn smod-btn-s" onclick="testConnection()">Tester</button>
+        <button class="smod-btn smod-btn-p" onclick="saveSettings()">Enregistrer</button>
+      </div>
+    </div>
+
+    <!-- Detection settings -->
+    <div class="smod-section">
+      <div class="smod-label">🎯 Détection</div>
+      <div class="sf">
+        <label>Confiance minimale : <strong id="confLabel">50%</strong></label>
+        <input id="cfgConf" type="range" min="10" max="95" step="5" value="50" oninput="document.getElementById('confLabel').textContent=this.value+'%'">
+        <div class="sf-hint">Seuil en dessous duquel les objets sont ignorés</div>
+      </div>
+      <div class="sf">
+        <label>Intervalle de déduplification</label>
+        <select id="cfgCooldown">
+          <option value="2000">2 secondes</option>
+          <option value="5000" selected>5 secondes</option>
+          <option value="10000">10 secondes</option>
+          <option value="30000">30 secondes</option>
+          <option value="0">Désactivé (tout enregistrer)</option>
+        </select>
+        <div class="sf-hint">Délai minimum entre deux enregistrements du même objet</div>
+      </div>
+      <div class="sf">
+        <label>Fréquence de sync Grist</label>
+        <select id="cfgFlush">
+          <option value="1000">1 seconde</option>
+          <option value="3000" selected>3 secondes</option>
+          <option value="5000">5 secondes</option>
+          <option value="10000">10 secondes</option>
+        </select>
+      </div>
+      <div class="toggle-row">
+        <label>Capture image (snapshot)</label>
+        <label class="toggle"><input type="checkbox" id="cfgSnap"><span class="toggle-track"></span></label>
+      </div>
+      <div class="sf-hint" style="margin-top:-6px">Enregistre une miniature JPEG à chaque détection (augmente le volume de données)</div>
+    </div>
+
+    <!-- Model info -->
+    <div class="smod-section">
+      <div class="smod-label">🧠 Modèle embarqué</div>
+      <div class="smod-row">
+        <div class="smod-kv"><div class="smod-kv-k">Modèle</div><div class="smod-kv-v">COCO-SSD</div></div>
+        <div class="smod-kv"><div class="smod-kv-k">Classes</div><div class="smod-kv-v">80 objets</div></div>
+        <div class="smod-kv"><div class="smod-kv-k">Backend</div><div class="smod-kv-v" id="kvBackend">—</div></div>
+        <div class="smod-kv"><div class="smod-kv-k">Inférence</div><div class="smod-kv-v" id="kvInf">—</div></div>
+      </div>
+      <div class="sf-hint" style="margin-top:12px">Le modèle s'exécute entièrement sur l'appareil. Aucune image n'est envoyée à un serveur.</div>
+    </div>
+
+    <!-- Session -->
+    <div class="smod-section">
+      <div class="smod-label">📊 Session courante</div>
+      <div class="smod-row">
+        <div class="smod-kv"><div class="smod-kv-k">Détections</div><div class="smod-kv-v" id="kvDet">0</div></div>
+        <div class="smod-kv"><div class="smod-kv-k">Synchronisées</div><div class="smod-kv-v" id="kvSync">0</div></div>
+        <div class="smod-kv"><div class="smod-kv-k">En attente</div><div class="smod-kv-v" id="kvPending">0</div></div>
+        <div class="smod-kv"><div class="smod-kv-k">Session ID</div><div class="smod-kv-v" id="kvSession" style="font-size:10px;word-break:break-all">—</div></div>
+      </div>
+      <button class="smod-btn smod-btn-s" style="margin-top:12px" onclick="newSession()">Nouvelle session</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ TOAST ══ -->
+<div id="toast"></div>
+
+<!-- TensorFlow.js + COCO-SSD (chargés depuis CDN, mis en cache par le SW) -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+
+<script>
+// ══════════════════════════════════════════════════════
+// CONSTANTES
+// ══════════════════════════════════════════════════════
+const APP_VERSION = '1.0.0';
+const STORE_KEY   = 'scout_vision_v1';
+const TABLE_NAME  = 'Detections_video';
+
+// Traductions FR des 80 classes COCO-SSD
+const CLASS_FR = {
+  person:'Personne', bicycle:'Vélo', car:'Voiture', motorcycle:'Moto',
+  airplane:'Avion', bus:'Bus', train:'Train', truck:'Camion', boat:'Bateau',
+  'traffic light':'Feu tricolore', 'fire hydrant':'Bouche incendie',
+  'stop sign':'Panneau stop', 'parking meter':'Parcmètre', bench:'Banc',
+  bird:'Oiseau', cat:'Chat', dog:'Chien', horse:'Cheval', sheep:'Mouton',
+  cow:'Vache', elephant:'Éléphant', bear:'Ours', zebra:'Zèbre', giraffe:'Girafe',
+  backpack:'Sac à dos', umbrella:'Parapluie', handbag:'Sac à main', tie:'Cravate',
+  suitcase:'Valise', frisbee:'Frisbee', skis:'Skis', snowboard:'Snowboard',
+  'sports ball':'Ballon', kite:'Cerf-volant', 'baseball bat':'Batte de baseball',
+  'baseball glove':'Gant baseball', skateboard:'Skateboard', surfboard:'Planche surf',
+  'tennis racket':'Raquette tennis', bottle:'Bouteille', 'wine glass':'Verre',
+  cup:'Tasse', fork:'Fourchette', knife:'Couteau', spoon:'Cuillère', bowl:'Bol',
+  banana:'Banane', apple:'Pomme', sandwich:'Sandwich', orange:'Orange',
+  broccoli:'Brocoli', carrot:'Carotte', 'hot dog':'Hot-dog', pizza:'Pizza',
+  donut:'Donut', cake:'Gâteau', chair:'Chaise', couch:'Canapé',
+  'potted plant':'Plante', bed:'Lit', 'dining table':'Table', toilet:'Toilettes',
+  tv:'Télévision', laptop:'Ordinateur portable', mouse:'Souris', remote:'Télécommande',
+  keyboard:'Clavier', 'cell phone':'Téléphone', microwave:'Micro-ondes', oven:'Four',
+  toaster:'Grille-pain', sink:'Évier', refrigerator:'Réfrigérateur', book:'Livre',
+  clock:'Horloge', vase:'Vase', scissors:'Ciseaux', 'teddy bear':'Peluche',
+  'hair drier':'Sèche-cheveux', toothbrush:'Brosse à dents'
+};
+
+// Couleurs par catégorie
+const CAT_COLOR = {
+  person:'#d29922',
+  car:'#58a6ff', truck:'#58a6ff', bus:'#58a6ff', motorcycle:'#58a6ff',
+  bicycle:'#58a6ff', airplane:'#58a6ff', train:'#58a6ff', boat:'#58a6ff',
+  'traffic light':'#f85149', 'fire hydrant':'#f85149', 'stop sign':'#f85149',
+  'parking meter':'#f85149', bench:'#f85149',
+  bird:'#3fb950', cat:'#3fb950', dog:'#3fb950', horse:'#3fb950',
+  sheep:'#3fb950', cow:'#3fb950', elephant:'#3fb950', bear:'#3fb950',
+  zebra:'#3fb950', giraffe:'#3fb950',
+};
+const DEFAULT_COLOR = '#bc8cff';
+
+function clsColor(c){ return CAT_COLOR[c] || DEFAULT_COLOR; }
+function clsFr(c){ return CLASS_FR[c] || c; }
+
+// Catégorie pour Grist
+function getCategory(c){
+  if(['car','truck','bus','motorcycle','bicycle','airplane','train','boat'].includes(c)) return 'Véhicule';
+  if(c==='person') return 'Personne';
+  if(['bird','cat','dog','horse','sheep','cow','elephant','bear','zebra','giraffe'].includes(c)) return 'Animal';
+  if(['traffic light','fire hydrant','stop sign','parking meter','bench'].includes(c)) return 'Infrastructure';
+  return 'Objet';
+}
+
+// Champs de la table Grist
+const FIELDS = [
+  {id:'session_id',      label:'Session',             type:'Text'},
+  {id:'horodatage',      label:'Horodatage',          type:'Text'},
+  {id:'classe_fr',       label:'Classe',              type:'Choice'},
+  {id:'classe_en',       label:'Classe (EN)',         type:'Text'},
+  {id:'categorie',       label:'Catégorie',           type:'Choice'},
+  {id:'confiance',       label:'Confiance (%)',        type:'Numeric'},
+  {id:'latitude',        label:'Latitude',            type:'Numeric'},
+  {id:'longitude',       label:'Longitude',           type:'Numeric'},
+  {id:'precision_gps',   label:'Précision GPS (m)',   type:'Numeric'},
+  {id:'vitesse_kmh',     label:'Vitesse (km/h)',      type:'Numeric'},
+  {id:'cap_degres',      label:'Cap (°)',             type:'Numeric'},
+  {id:'nb_objets_frame', label:'Nb objets dans frame',type:'Numeric'},
+  {id:'bbox',            label:'Bounding Box',        type:'Text'},
+  {id:'snapshot',        label:'Capture image',       type:'Text'},
+];
+
+// ══════════════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════════════
+// IN_GRIST → shared/grist-client.js
+
+let model       = null;   // TF.js COCO-SSD
+let detecting   = false;  // boucle active
+let sessionId   = genSessionId();
+let camStream   = null;
+let facingMode  = 'environment'; // rear camera
+let gpsWatchId  = null;
+let currentGPS  = null;   // {lat, lon, acc, speed, heading}
+let detBuffer   = [];     // records à envoyer
+let lastDet     = {};     // {class: {time, bbox}} pour dédup
+let syncCount   = 0;
+let detCount    = 0;
+let flushTimer  = null;
+let fpsArr      = [];
+let lastInfMs   = 0;
+let gristConnOk = false;
+
+let gristConn = {url:'', apiKey:'', docId:''};
+let cfg = {confidence:50, cooldown:5000, flushInterval:3000, snapshots:false};
+
+// Elements DOM (initialisés dans init())
+let videoEl, overlayEl, overlayCtx;
+
+function genSessionId(){
+  const d = new Date();
+  return `SV_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}_${String(d.getHours()).padStart(2,'0')}${String(d.getMinutes()).padStart(2,'0')}_${Math.random().toString(36).slice(2,6).toUpperCase()}`;
+}
+
+// IS_CAP, IN_GRIST, apiFetch → shared/grist-client.js
+// AppStorage → shared/storage.js
+const _store = new AppStorage(STORE_KEY);
+const storeLoad = () => _store.load();
+const storeSave = (d) => _store.save(d);
+
+// ══════════════════════════════════════════════════════
+// GRIST — CONNEXION & API
+// ══════════════════════════════════════════════════════
+function gristBase(){ return gristConn.url.replace(/\/+$/,''); }
+function gristHdrs(){ return {'Authorization':'Bearer '+gristConn.apiKey,'Content-Type':'application/json'}; }
+
+async function testGristConnection(){
+  if(!gristConn.url || !gristConn.apiKey || !gristConn.docId) return false;
+  try{
+    const r = await apiFetch(`${gristBase()}/api/docs/${gristConn.docId}/tables`,{headers:gristHdrs()});
+    return r.ok;
+  }catch(_){ return false; }
+}
+
+async function ensureTable(){
+  if(!gristConn.docId) return;
+  try{
+    const r = await apiFetch(`${gristBase()}/api/docs/${gristConn.docId}/tables`,{headers:gristHdrs()});
+    if(!r.ok) return;
+    const data = await r.json();
+    const tables = data.tables || [];
+    if(tables.some(t=>t.id===TABLE_NAME)) return; // déjà existante
+
+    // Créer la table
+    const columns = FIELDS.map(f=>({id:f.id, fields:{label:f.label, type:f.type}}));
+    await apiFetch(`${gristBase()}/api/docs/${gristConn.docId}/tables`,{
+      method:'POST', headers:gristHdrs(),
+      body: JSON.stringify({tables:[{id:TABLE_NAME, columns}]})
+    });
+
+    // Appliquer les couleurs sur les Choice
+    await apiFetch(`${gristBase()}/api/docs/${gristConn.docId}/apply`,{
+      method:'POST', headers:gristHdrs(),
+      body: JSON.stringify([['BulkUpdateRecord','_grist_Tables_column',[],{}]]) // no-op si besoin
+    });
+
+    toast('Table Detections_video créée dans Grist');
+  }catch(e){ console.warn('ensureTable error:', e); }
+}
+
+async function postDetections(records){
+  if(!records.length || !gristConn.docId) return false;
+  try{
+    const body = {records: records.map(f=>({fields:f}))};
+    const r = await apiFetch(
+      `${gristBase()}/api/docs/${gristConn.docId}/tables/${TABLE_NAME}/records`,
+      {method:'POST', headers:gristHdrs(), body:JSON.stringify(body)}
+    );
+    return r.ok;
+  }catch(_){ return false; }
+}
+
+// GPS → shared/sensors.js (GPSTracker)
+const _gps = new GPSTracker({
+  onChange: pos => { currentGPS = pos; updateGpsStatus(); }
+});
+function startGPS(){ _gps.start(); }
+function stopGPS(){ _gps.stop(); }
+function updateGpsStatus(){
+  const el = document.getElementById('sGps');
+  if(!el) return;
+  if(currentGPS){
+    el.textContent = `GPS ±${currentGPS.acc}m`;
+    el.className = 's-pill' + (currentGPS.acc < 20 ? ' ok' : currentGPS.acc < 50 ? ' warn' : ' err');
+  } else {
+    el.textContent = 'GPS ✕';
+    el.className = 's-pill err';
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// CAMÉRA
+// ══════════════════════════════════════════════════════
+async function startCamera(){
+  const constraints = {
+    video:{ facingMode:{ideal:facingMode}, width:{ideal:1280}, height:{ideal:720} },
+    audio:false
+  };
+  try{
+    camStream = await navigator.mediaDevices.getUserMedia(constraints);
+    videoEl.srcObject = camStream;
+    await new Promise(res=>{ videoEl.onloadedmetadata=()=>{ videoEl.play(); res(); }; });
+    syncCanvas();
+    window.addEventListener('resize', syncCanvas);
+    return true;
+  }catch(e){
+    console.error('Camera error:', e);
+    return false;
+  }
+}
+function stopCamera(){
+  if(camStream){ camStream.getTracks().forEach(t=>t.stop()); camStream = null; }
+  window.removeEventListener('resize', syncCanvas);
+}
+function syncCanvas(){
+  // Canvas résolution = résolution native vidéo pour des coordonnées bbox correctes
+  overlayEl.width  = videoEl.videoWidth  || videoEl.clientWidth;
+  overlayEl.height = videoEl.videoHeight || videoEl.clientHeight;
+}
+async function switchCamera(){
+  facingMode = facingMode === 'environment' ? 'user' : 'environment';
+  const wasDetecting = detecting;
+  if(detecting) await stopDetection();
+  stopCamera();
+  const ok = await startCamera();
+  if(ok && wasDetecting) startDetection();
+}
+
+// ══════════════════════════════════════════════════════
+// MODÈLE TF.js
+// ══════════════════════════════════════════════════════
+async function loadModel(){
+  setLoadProgress(10, 'Initialisation TensorFlow.js…');
+
+  // Choisir le meilleur backend disponible
+  try{
+    await tf.setBackend('webgl');
+    await tf.ready();
+    document.getElementById('kvBackend').textContent = 'WebGL';
+  }catch(_){
+    try{
+      await tf.setBackend('wasm');
+      await tf.ready();
+      document.getElementById('kvBackend').textContent = 'WASM';
+    }catch(_2){
+      await tf.setBackend('cpu');
+      await tf.ready();
+      document.getElementById('kvBackend').textContent = 'CPU';
+    }
+  }
+
+  setLoadProgress(30, 'Téléchargement COCO-SSD…');
+
+  try{
+    model = await cocoSsd.load({base:'lite_mobilenet_v2'}); // modèle léger (~1.8 Mo)
+    setLoadProgress(100, 'Modèle chargé.');
+    return true;
+  }catch(e){
+    console.error('Model load error:', e);
+    return false;
+  }
+}
+function setLoadProgress(pct, msg){
+  const fill = document.getElementById('ldFill');
+  const status = document.getElementById('ldStatus');
+  if(fill) fill.style.width = pct + '%';
+  if(status) status.textContent = msg;
+}
+
+// ══════════════════════════════════════════════════════
+// BOUCLE DE DÉTECTION (async — une inférence à la fois)
+// ══════════════════════════════════════════════════════
+async function startDetection(){
+  if(detecting) return;
+  detecting = true;
+  document.getElementById('btnDetect').textContent  = '⏹ Arrêter';
+  document.getElementById('btnDetect').classList.add('active');
+  document.getElementById('sessionBadge').style.display = 'block';
+  startFlush();
+  detectionLoop();
+}
+async function stopDetection(){
+  detecting = false;
+  document.getElementById('btnDetect').textContent = '▶ Détecter';
+  document.getElementById('btnDetect').classList.remove('active');
+  stopFlush();
+  // flush final
+  await flushToGrist();
+  clearOverlay();
+}
+async function toggleDetection(){
+  if(detecting) await stopDetection();
+  else await startDetection();
+}
+
+async function detectionLoop(){
+  while(detecting && model && videoEl.readyState >= 2){
+    const t0 = performance.now();
+
+    let predictions = [];
+    try{
+      predictions = await model.detect(videoEl);
+    }catch(e){
+      await yieldFrame();
+      continue;
+    }
+
+    const elapsed = performance.now() - t0;
+    lastInfMs = Math.round(elapsed);
+    updateFPS(elapsed);
+
+    const minConf = cfg.confidence / 100;
+    const filtered = predictions.filter(p => p.score >= minConf);
+
+    drawDetections(filtered);
+    processDetections(filtered);
+    updateStatsBar(filtered.length);
+
+    await yieldFrame();
+  }
+
+  if(detecting){ // Vidéo pas encore prête, réessayer
+    await new Promise(r=>setTimeout(r,200));
+    detectionLoop();
+  }
+}
+function yieldFrame(){ return new Promise(r=>requestAnimationFrame(r)); }
+
+// ══════════════════════════════════════════════════════
+// OVERLAY CANVAS — DESSIN
+// ══════════════════════════════════════════════════════
+function clearOverlay(){
+  if(overlayCtx) overlayCtx.clearRect(0, 0, overlayEl.width, overlayEl.height);
+}
+
+function drawDetections(predictions){
+  if(!overlayCtx) return;
+  const W = overlayEl.width, H = overlayEl.height;
+  overlayCtx.clearRect(0, 0, W, H);
+
+  predictions.forEach(p=>{
+    const [bx, by, bw, bh] = mapBbox(p.bbox);
+    const color = clsColor(p.class);
+    const label = clsFr(p.class);
+    const conf  = Math.round(p.score * 100);
+
+    // Rectangle
+    overlayCtx.strokeStyle = color;
+    overlayCtx.lineWidth   = 2.5;
+    overlayCtx.shadowColor = 'rgba(0,0,0,.6)';
+    overlayCtx.shadowBlur  = 4;
+    overlayCtx.strokeRect(bx, by, bw, bh);
+
+    // Fond label
+    const fontSize = Math.max(11, Math.min(16, bw / 8));
+    overlayCtx.font = `bold ${fontSize}px 'Segoe UI',sans-serif`;
+    const text = `${label} ${conf}%`;
+    const tw = overlayCtx.measureText(text).width + 12;
+    const th = fontSize + 8;
+
+    overlayCtx.shadowBlur = 0;
+    overlayCtx.fillStyle  = color;
+    const lx = bx, ly = by > th + 2 ? by - th : by;
+    overlayCtx.beginPath();
+    overlayCtx.roundRect(lx, ly, tw, th, [4,4,4,0]);
+    overlayCtx.fill();
+
+    // Texte label
+    overlayCtx.fillStyle  = '#fff';
+    overlayCtx.shadowBlur = 0;
+    overlayCtx.fillText(text, lx + 6, ly + fontSize + 1);
+  });
+}
+
+// Mapping bbox vidéo → canvas avec object-fit:cover
+function mapBbox(bbox){
+  const [x, y, w, h] = bbox;
+  const vw = videoEl.videoWidth, vh = videoEl.videoHeight;
+  const cw = overlayEl.width,    ch = overlayEl.height;
+  if(!vw || !vh) return bbox;
+
+  // object-fit: cover → on garde le plus grand ratio
+  const scale = Math.max(cw / vw, ch / vh);
+  const ox = (cw - vw * scale) / 2;
+  const oy = (ch - vh * scale) / 2;
+
+  return [x * scale + ox, y * scale + oy, w * scale, h * scale];
+}
+
+// ══════════════════════════════════════════════════════
+// DÉDUPLIFICATION & BUFFERING
+// ══════════════════════════════════════════════════════
+function processDetections(predictions){
+  const now = Date.now();
+  const total = predictions.length;
+
+  predictions.forEach(p=>{
+    if(!shouldRecord(p, now)) return;
+
+    const gps = currentGPS;
+    const snap = cfg.snapshots ? captureSnapshot() : null;
+
+    const record = {
+      session_id:      sessionId,
+      horodatage:      new Date().toISOString(),
+      classe_fr:       clsFr(p.class),
+      classe_en:       p.class,
+      categorie:       getCategory(p.class),
+      confiance:       Math.round(p.score * 100),
+      latitude:        gps ? +gps.lat.toFixed(7) : null,
+      longitude:       gps ? +gps.lon.toFixed(7) : null,
+      precision_gps:   gps ? gps.acc : null,
+      vitesse_kmh:     gps?.speed  ?? null,
+      cap_degres:      gps?.heading ?? null,
+      nb_objets_frame: total,
+      bbox:            JSON.stringify(p.bbox.map(v=>Math.round(v))),
+      snapshot:        snap,
+    };
+
+    // Retirer les null (Grist n'en veut pas toujours)
+    Object.keys(record).forEach(k=>{ if(record[k]===null) delete record[k]; });
+
+    detBuffer.push(record);
+    detCount++;
+    addLogEntry(p, gps);
+  });
+}
+
+function shouldRecord(p, now){
+  const cooldown = cfg.cooldown;
+  if(cooldown === 0) return true;
+
+  const key  = p.class;
+  const prev = lastDet[key];
+  if(!prev){
+    lastDet[key] = {time:now, bbox:p.bbox};
+    return true;
+  }
+  if((now - prev.time) > cooldown){
+    lastDet[key] = {time:now, bbox:p.bbox};
+    return true;
+  }
+  // Même cooldown mais nouveau specimen (IoU faible = objet différent)
+  if(computeIoU(prev.bbox, p.bbox) < 0.3){
+    lastDet[key] = {time:now, bbox:p.bbox};
+    return true;
+  }
+  return false;
+}
+
+function computeIoU(a, b){
+  const x1 = Math.max(a[0], b[0]), y1 = Math.max(a[1], b[1]);
+  const x2 = Math.min(a[0]+a[2], b[0]+b[2]), y2 = Math.min(a[1]+a[3], b[1]+b[3]);
+  if(x2 <= x1 || y2 <= y1) return 0;
+  const inter = (x2-x1) * (y2-y1);
+  return inter / (a[2]*a[3] + b[2]*b[3] - inter);
+}
+
+function captureSnapshot(){
+  try{
+    const c = document.createElement('canvas');
+    const scale = 160 / videoEl.videoWidth;
+    c.width  = 160;
+    c.height = Math.round(videoEl.videoHeight * scale);
+    c.getContext('2d').drawImage(videoEl, 0, 0, c.width, c.height);
+    return c.toDataURL('image/jpeg', 0.6);
+  }catch(_){ return null; }
+}
+
+// ══════════════════════════════════════════════════════
+// SYNC GRIST — FLUSH PAR BATCH
+// ══════════════════════════════════════════════════════
+function startFlush(){
+  if(flushTimer) clearInterval(flushTimer);
+  flushTimer = setInterval(flushToGrist, cfg.flushInterval);
+}
+function stopFlush(){
+  if(flushTimer){ clearInterval(flushTimer); flushTimer = null; }
+}
+
+async function flushToGrist(){
+  if(!detBuffer.length) return;
+  if(!gristConn.docId){ return; } // mode démo : on garde en buffer
+
+  const batch = detBuffer.splice(0, detBuffer.length);
+  try{
+    const ok = await postDetections(batch);
+    if(ok){
+      syncCount += batch.length;
+      gristConnOk = true;
+    } else {
+      detBuffer.unshift(...batch); // remettre en file
+      gristConnOk = false;
+    }
+  }catch(_){
+    detBuffer.unshift(...batch);
+    gristConnOk = false;
+  }
+  updateSyncStatus();
+  updateSettingsStats();
+}
+
+function updateSyncStatus(){
+  const el = document.getElementById('sSync');
+  if(!el) return;
+  if(!gristConn.docId){
+    el.textContent = 'Démo';
+    el.className = 's-pill warn';
+  } else if(gristConnOk){
+    el.textContent = `Grist ✓ ${syncCount}`;
+    el.className = 's-pill ok';
+  } else {
+    el.textContent = `Grist ✕ (${detBuffer.length})`;
+    el.className = 's-pill err';
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// UI — STATS & LOG
+// ══════════════════════════════════════════════════════
+function updateFPS(inferenceMs){
+  const now = Date.now();
+  fpsArr.push(now);
+  fpsArr = fpsArr.filter(t => now - t < 1000);
+}
+
+function updateStatsBar(objCount){
+  const el = document.getElementById('sFps');
+  if(el) el.textContent = `${fpsArr.length} FPS · ${lastInfMs}ms`;
+
+  const badge = document.getElementById('sBadgeDet');
+  if(badge) badge.textContent = detCount;
+  const bsync = document.getElementById('sBadgeSync');
+  if(bsync) bsync.textContent = syncCount;
+}
+
+const logEntries = [];
+function addLogEntry(p, gps){
+  const entry = {
+    time:    new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',second:'2-digit'}),
+    class:   p.class,
+    classFr: clsFr(p.class),
+    conf:    Math.round(p.score * 100),
+    color:   clsColor(p.class),
+    gps:     gps ? `${gps.lat.toFixed(5)}, ${gps.lon.toFixed(5)}` : null,
+  };
+  logEntries.unshift(entry);
+  if(logEntries.length > 200) logEntries.pop();
+  renderLog();
+}
+function renderLog(){
+  const list = document.getElementById('logList');
+  const count = document.getElementById('logCount');
+  if(!list) return;
+  count.textContent = detCount;
+  if(!logEntries.length){
+    list.innerHTML = '<div class="log-empty">Aucune détection encore.</div>';
+    return;
+  }
+  list.innerHTML = logEntries.slice(0,50).map(e=>`
+    <div class="log-item">
+      <span class="log-dot" style="background:${e.color}"></span>
+      <div class="log-main">
+        <div class="log-classe">${e.classFr}</div>
+        <div class="log-meta">${e.time}${e.gps?' · '+e.gps:''}</div>
+      </div>
+      <span class="log-conf" style="color:${e.color}">${e.conf}%</span>
+    </div>`).join('');
+}
+function openLog(){ document.getElementById('logPanel').classList.add('open'); renderLog(); }
+function closeLog(){ document.getElementById('logPanel').classList.remove('open'); }
+
+function openSettings(){ renderSettings(); document.getElementById('settingsModal').classList.add('open'); }
+function closeSettings(){ document.getElementById('settingsModal').classList.remove('open'); }
+
+function renderSettings(){
+  document.getElementById('cfgUrl').value      = gristConn.url;
+  document.getElementById('cfgKey').value      = gristConn.apiKey;
+  document.getElementById('cfgDoc').value      = gristConn.docId;
+  document.getElementById('cfgConf').value     = cfg.confidence;
+  document.getElementById('confLabel').textContent = cfg.confidence + '%';
+  document.getElementById('cfgCooldown').value = cfg.cooldown;
+  document.getElementById('cfgFlush').value    = cfg.flushInterval;
+  document.getElementById('cfgSnap').checked   = cfg.snapshots;
+  updateSettingsStats();
+}
+function updateSettingsStats(){
+  const s = v=>document.getElementById(v);
+  s('kvDet').textContent     = detCount;
+  s('kvSync').textContent    = syncCount;
+  s('kvPending').textContent = detBuffer.length;
+  s('kvSession').textContent = sessionId;
+  s('kvInf').textContent     = lastInfMs ? lastInfMs + ' ms' : '—';
+}
+
+async function saveSettings(){
+  gristConn.url    = document.getElementById('cfgUrl').value.trim();
+  gristConn.apiKey = document.getElementById('cfgKey').value.trim();
+  gristConn.docId  = document.getElementById('cfgDoc').value.trim();
+  cfg.confidence   = +document.getElementById('cfgConf').value;
+  cfg.cooldown     = +document.getElementById('cfgCooldown').value;
+  cfg.flushInterval = +document.getElementById('cfgFlush').value;
+  cfg.snapshots    = document.getElementById('cfgSnap').checked;
+
+  await storeSave({gristConn, cfg});
+
+  if(detecting){ stopFlush(); startFlush(); } // relancer avec nouveau interval
+  updateSyncStatus();
+  closeSettings();
+  toast('Paramètres enregistrés');
+
+  // Vérifier table Grist en arrière-plan
+  if(gristConn.docId) ensureTable();
+}
+
+async function testConnection(){
+  const el = document.getElementById('connStatus');
+  el.className = 'conn-status';
+  el.textContent = 'Test en cours…';
+  el.style.display = 'block';
+
+  const tmpConn = {
+    url:    document.getElementById('cfgUrl').value.trim(),
+    apiKey: document.getElementById('cfgKey').value.trim(),
+    docId:  document.getElementById('cfgDoc').value.trim(),
+  };
+  const saved = gristConn;
+  gristConn = tmpConn;
+  const ok = await testGristConnection();
+  gristConn = saved;
+
+  el.className = 'conn-status ' + (ok ? 'ok' : 'err');
+  el.textContent = ok ? 'Connexion réussie ✓' : 'Connexion échouée — vérifiez URL, clé API et ID document';
+}
+
+function newSession(){
+  sessionId = genSessionId();
+  detCount  = 0; syncCount = 0; detBuffer = []; lastDet = {}; logEntries.length = 0;
+  updateSettingsStats();
+  renderLog();
+  toast('Nouvelle session : ' + sessionId);
+}
+
+// ══════════════════════════════════════════════════════
+// TOAST
+// ══════════════════════════════════════════════════════
+let toastTimer;
+function toast(msg, dur=2800){
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>el.classList.remove('show'), dur);
+}
+
+// ══════════════════════════════════════════════════════
+// PERMISSION CAMÉRA
+// ══════════════════════════════════════════════════════
+async function requestCamera(){
+  document.getElementById('permScreen').style.display = 'none';
+  const ok = await startCamera();
+  if(!ok){
+    document.getElementById('permScreen').style.display = 'flex';
+    toast('Impossible d\'accéder à la caméra');
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════════════
+async function init(){
+  videoEl   = document.getElementById('cam');
+  overlayEl = document.getElementById('overlay');
+  overlayCtx = overlayEl.getContext('2d');
+
+  // Charger config
+  const stored = await storeLoad();
+  if(stored){
+    if(stored.gristConn) gristConn = {...gristConn, ...stored.gristConn};
+    if(stored.cfg) cfg = {...cfg, ...stored.cfg};
+  }
+
+  // Mode Grist widget
+  if(IN_GRIST){
+    grist.ready({requiredAccess:'full'});
+    // En widget, afficher juste les stats (pas de caméra dans iframe)
+    document.getElementById('loadScreen').innerHTML = `
+      <div class="ld-icon">◎</div>
+      <div class="ld-title">SCOUT Vision</div>
+      <div class="ld-sub">Ce widget affiche les données de détection vidéo. Lancez l'app mobile pour capturer.</div>`;
+    return;
+  }
+
+  // Charger le modèle TF.js
+  setLoadProgress(5, 'Vérification du support TensorFlow.js…');
+  if(typeof tf === 'undefined' || typeof cocoSsd === 'undefined'){
+    showLoadError('TensorFlow.js non chargé. Vérifiez votre connexion internet.');
+    return;
+  }
+
+  const modelOk = await loadModel();
+  if(!modelOk){
+    showLoadError('Impossible de charger le modèle COCO-SSD. Vérifiez votre connexion et réessayez.');
+    return;
+  }
+
+  // Démarrer GPS
+  startGPS();
+
+  // Initialiser le statut Grist
+  updateSyncStatus();
+  updateGpsStatus();
+
+  // Masquer le loading, montrer la vue principale
+  document.getElementById('loadScreen').style.display = 'none';
+
+  // Demander la caméra
+  const camOk = await startCamera();
+  if(!camOk){
+    document.getElementById('permScreen').style.display = 'flex';
+    document.getElementById('mainView').style.display   = 'block';
+  } else {
+    document.getElementById('mainView').style.display = 'block';
+    if(gristConn.docId) ensureTable();
+    toast('Modèle prêt — appuyez sur Détecter');
+  }
+
+  // Enregistrement Service Worker
+  if('serviceWorker' in navigator){
+    navigator.serviceWorker.register('sw.js').catch(()=>{});
+  }
+}
+
+function showLoadError(msg){
+  const err = document.getElementById('ldErr');
+  err.textContent = msg;
+  err.style.display = 'block';
+  document.getElementById('ldFill').style.width = '0%';
+}
+
+init();
+</script>
+</body>
+</html>

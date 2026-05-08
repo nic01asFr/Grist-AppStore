@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SCOUT Vision — Dashboard</title>
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<style>
+:root{--bg:#0d1117;--bg2:#161b22;--bg3:#21262d;--bd:rgba(255,255,255,.1);--bd2:rgba(255,255,255,.18);--tx:#e6edf3;--tx2:#8b949e;--tx3:#484f58;--ct:#1f6feb;--ct-m:#58a6ff;--ct-l:rgba(56,139,253,.12);--cr:#f85149;--cg:#3fb950;--ca:#d29922;--r:8px;--f:'Segoe UI',system-ui,sans-serif}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--f);background:var(--bg);color:var(--tx);font-size:13px;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+
+/* ── HEADER ── */
+.hdr{background:var(--bg2);border-bottom:1px solid var(--bd);padding:10px 14px;display:flex;align-items:center;gap:10px;flex-shrink:0}
+.hdr-title{font-size:14px;font-weight:700;color:var(--ct-m);letter-spacing:.03em}
+.hdr-sub{font-size:11px;color:var(--tx3);flex:1}
+.hdr-badge{background:var(--ct-l);color:var(--ct-m);font-size:11px;font-weight:700;padding:2px 8px;border-radius:12px}
+
+/* ── STATS ROW ── */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:10px 12px;border-bottom:1px solid var(--bd);flex-shrink:0}
+.stat{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);padding:8px 10px;text-align:center}
+.stat-v{font-size:20px;font-weight:700;color:var(--tx)}
+.stat-l{font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.05em;margin-top:2px}
+
+/* ── FILTERS ── */
+.filters{display:flex;gap:6px;padding:8px 12px;border-bottom:1px solid var(--bd);overflow-x:auto;flex-shrink:0;align-items:center}
+.filters::-webkit-scrollbar{display:none}
+.flt{background:var(--bg2);border:1px solid var(--bd2);border-radius:20px;padding:4px 12px;font-size:11px;font-weight:600;color:var(--tx2);cursor:pointer;white-space:nowrap;-webkit-tap-highlight-color:transparent;transition:all .15s}
+.flt:hover,.flt.on{background:var(--ct-l);border-color:var(--ct-m);color:var(--ct-m)}
+.flt-sep{width:1px;height:18px;background:var(--bd);flex-shrink:0}
+.search{background:var(--bg2);border:1px solid var(--bd2);border-radius:20px;padding:4px 12px;font-size:12px;color:var(--tx);outline:none;min-width:120px;font-family:var(--f)}
+.search:focus{border-color:var(--ct-m)}
+
+/* ── TABLE ── */
+.tbl-wrap{flex:1;overflow-y:auto}
+table{width:100%;border-collapse:collapse}
+thead{position:sticky;top:0;z-index:2}
+th{background:var(--bg3);padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--tx3);border-bottom:1px solid var(--bd);white-space:nowrap;cursor:pointer;user-select:none}
+th:hover{color:var(--tx2)}
+th .sort-arrow{margin-left:4px;opacity:.4}
+th.sort-asc .sort-arrow::after{content:'↑';opacity:1}
+th.sort-desc .sort-arrow::after{content:'↓';opacity:1}
+td{padding:7px 10px;border-bottom:1px solid var(--bd);vertical-align:middle;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:rgba(255,255,255,.03)}
+tr.selected td{background:var(--ct-l)}
+
+/* ── BADGES ── */
+.badge-cat{font-size:10px;font-weight:600;padding:2px 7px;border-radius:10px;white-space:nowrap}
+.cat-vehicule{background:rgba(88,166,255,.15);color:#58a6ff}
+.cat-personne{background:rgba(210,153,34,.15);color:#d29922}
+.cat-animal{background:rgba(63,185,80,.15);color:#3fb950}
+.cat-infrastructure{background:rgba(248,81,73,.15);color:#f85149}
+.cat-objet{background:rgba(188,140,255,.15);color:#bc8cff}
+.conf-bar{display:flex;align-items:center;gap:6px}
+.conf-bg{flex:1;height:4px;background:var(--bg3);border-radius:2px;min-width:50px}
+.conf-fill{height:100%;border-radius:2px;background:var(--cg)}
+.conf-txt{font-size:11px;font-weight:600;color:var(--tx2);min-width:28px;text-align:right}
+.gps-link{color:var(--ct-m);text-decoration:none;font-size:11px}
+.gps-link:hover{text-decoration:underline}
+
+/* ── DETAIL PANEL ── */
+.detail{background:var(--bg2);border-left:1px solid var(--bd);width:260px;flex-shrink:0;overflow-y:auto;display:none;padding:14px}
+.detail.open{display:block}
+.detail-title{font-size:15px;font-weight:700;margin-bottom:14px}
+.dv{margin-bottom:10px}
+.dv-k{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--tx3);margin-bottom:3px}
+.dv-v{font-size:13px;color:var(--tx)}
+.dv-close{float:right;background:none;border:none;color:var(--tx3);cursor:pointer;font-size:16px;padding:0;line-height:1}
+
+/* ── MAP MINI ── */
+.map-mini{width:100%;aspect-ratio:1;background:var(--bg3);border-radius:var(--r);overflow:hidden;margin-bottom:12px;display:flex;align-items:center;justify-content:center;color:var(--tx3);font-size:11px;text-align:center}
+
+/* ── EMPTY ── */
+.empty{text-align:center;padding:40px 20px;color:var(--tx3)}
+.empty-icon{font-size:36px;margin-bottom:10px}
+.empty-txt{font-size:13px;line-height:1.6}
+
+/* ── MAIN LAYOUT ── */
+.main{flex:1;display:flex;overflow:hidden}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <span class="hdr-title">◎ SCOUT Vision</span>
+  <span class="hdr-sub">Détections temps réel</span>
+  <span class="hdr-badge" id="hdrCount">0 détections</span>
+</div>
+
+<div class="stats">
+  <div class="stat"><div class="stat-v" id="stTotal">0</div><div class="stat-l">Détections</div></div>
+  <div class="stat"><div class="stat-v" id="stSessions">0</div><div class="stat-l">Sessions</div></div>
+  <div class="stat"><div class="stat-v" id="stClasses">0</div><div class="stat-l">Classes</div></div>
+  <div class="stat"><div class="stat-v" id="stConf">—</div><div class="stat-l">Conf. moy.</div></div>
+</div>
+
+<div class="filters">
+  <button class="flt on" data-cat="">Tous</button>
+  <button class="flt" data-cat="Véhicule">Véhicules</button>
+  <button class="flt" data-cat="Personne">Personnes</button>
+  <button class="flt" data-cat="Animal">Animaux</button>
+  <button class="flt" data-cat="Infrastructure">Infra.</button>
+  <button class="flt" data-cat="Objet">Objets</button>
+  <div class="flt-sep"></div>
+  <input class="search" id="search" type="search" placeholder="Rechercher…" oninput="filterRender()">
+</div>
+
+<div class="main">
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th onclick="sortBy('horodatage')">Heure <span class="sort-arrow"></span></th>
+          <th onclick="sortBy('classe_fr')">Classe <span class="sort-arrow"></span></th>
+          <th onclick="sortBy('categorie')">Catégorie <span class="sort-arrow"></span></th>
+          <th onclick="sortBy('confiance')">Confiance <span class="sort-arrow"></span></th>
+          <th onclick="sortBy('latitude')">Localisation <span class="sort-arrow"></span></th>
+          <th onclick="sortBy('vitesse_kmh')">Vitesse <span class="sort-arrow"></span></th>
+          <th onclick="sortBy('session_id')">Session <span class="sort-arrow"></span></th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+    <div id="emptyState" class="empty" style="display:none">
+      <div class="empty-icon">◎</div>
+      <div class="empty-txt">Aucune détection.<br>Lancez SCOUT Vision sur votre téléphone pour commencer.</div>
+    </div>
+  </div>
+  <div class="detail" id="detail"></div>
+</div>
+
+<script>
+const COLS = ['session_id','horodatage','classe_fr','classe_en','categorie','confiance',
+              'latitude','longitude','precision_gps','vitesse_kmh','cap_degres',
+              'nb_objets_frame','bbox','snapshot'];
+
+let allRecords = [], colMap = {}, filteredRecords = [];
+let activeCat = '', sortCol = 'horodatage', sortDir = -1;
+let selectedId = null;
+
+const CAT_CLASS = {
+  'Véhicule':'cat-vehicule','Personne':'cat-personne','Animal':'cat-animal',
+  'Infrastructure':'cat-infrastructure','Objet':'cat-objet'
+};
+
+// ── GRIST INTEGRATION ──
+grist.ready({requiredAccess:'read table'});
+
+grist.onRecords((records, mappings)=>{
+  colMap = mappings || {};
+  allRecords = records.map(r=>{
+    const m = {_id: r.id};
+    COLS.forEach(c=>{ m[c] = r[colMap[c] || c]; });
+    return m;
+  });
+  filterRender();
+  updateStats();
+});
+
+// ── FILTER & RENDER ──
+function filterRender(){
+  const q = (document.getElementById('search').value || '').toLowerCase();
+  filteredRecords = allRecords.filter(r=>{
+    if(activeCat && r.categorie !== activeCat) return false;
+    if(q){
+      const haystack = [r.classe_fr, r.classe_en, r.session_id, r.categorie].join(' ').toLowerCase();
+      if(!haystack.includes(q)) return false;
+    }
+    return true;
+  });
+  // Sort
+  filteredRecords.sort((a,b)=>{
+    let va = a[sortCol] ?? '', vb = b[sortCol] ?? '';
+    if(typeof va === 'string') va = va.toLowerCase(), vb = (vb+'').toLowerCase();
+    return va < vb ? -sortDir : va > vb ? sortDir : 0;
+  });
+  renderTable();
+}
+
+function renderTable(){
+  const tbody = document.getElementById('tbody');
+  const empty = document.getElementById('emptyState');
+  document.getElementById('hdrCount').textContent = allRecords.length + ' détections';
+
+  if(!filteredRecords.length){
+    tbody.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+
+  tbody.innerHTML = filteredRecords.map(r=>{
+    const t   = r.horodatage ? new Date(r.horodatage).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',second:'2-digit'}) : '—';
+    const cat = r.categorie || '—';
+    const cc  = CAT_CLASS[cat] || 'cat-objet';
+    const conf = r.confiance ?? 0;
+    const confColor = conf >= 80 ? '#3fb950' : conf >= 60 ? '#d29922' : '#f85149';
+    const gpsHref = (r.latitude && r.longitude)
+      ? `https://www.openstreetmap.org/?mlat=${r.latitude}&mlon=${r.longitude}#map=18/${r.latitude}/${r.longitude}`
+      : null;
+    const gpsCell = gpsHref
+      ? `<a class="gps-link" href="${gpsHref}" target="_blank" rel="noopener">📍 ${(+r.latitude).toFixed(4)}, ${(+r.longitude).toFixed(4)}</a>`
+      : '<span style="color:var(--tx3)">—</span>';
+    const speed = r.vitesse_kmh != null ? r.vitesse_kmh + ' km/h' : '—';
+    const sid   = (r.session_id || '').replace('SV_','').slice(0,14);
+
+    return `<tr class="${r._id===selectedId?'selected':''}" onclick="selectRow(${r._id})">
+      <td>${t}</td>
+      <td style="font-weight:600">${r.classe_fr || r.classe_en || '—'}</td>
+      <td><span class="badge-cat ${cc}">${cat}</span></td>
+      <td>
+        <div class="conf-bar">
+          <div class="conf-bg"><div class="conf-fill" style="width:${conf}%;background:${confColor}"></div></div>
+          <span class="conf-txt" style="color:${confColor}">${conf}%</span>
+        </div>
+      </td>
+      <td>${gpsCell}</td>
+      <td>${speed}</td>
+      <td style="color:var(--tx3);font-size:11px">${sid}</td>
+    </tr>`;
+  }).join('');
+}
+
+function updateStats(){
+  document.getElementById('stTotal').textContent = allRecords.length;
+  const sessions = new Set(allRecords.map(r=>r.session_id).filter(Boolean)).size;
+  const classes  = new Set(allRecords.map(r=>r.classe_en).filter(Boolean)).size;
+  const confs    = allRecords.map(r=>r.confiance).filter(v=>v!=null);
+  const avgConf  = confs.length ? Math.round(confs.reduce((a,b)=>a+b,0)/confs.length) : null;
+  document.getElementById('stSessions').textContent = sessions;
+  document.getElementById('stClasses').textContent  = classes;
+  document.getElementById('stConf').textContent     = avgConf != null ? avgConf + '%' : '—';
+}
+
+// ── SORT ──
+function sortBy(col){
+  if(sortCol === col) sortDir *= -1;
+  else { sortCol = col; sortDir = -1; }
+  document.querySelectorAll('th').forEach(th=>{
+    th.classList.remove('sort-asc','sort-desc');
+    const arrow = th.querySelector('.sort-arrow');
+    if(arrow) arrow.textContent = '';
+  });
+  const headers = ['horodatage','classe_fr','categorie','confiance','latitude','vitesse_kmh','session_id'];
+  const idx = headers.indexOf(col);
+  if(idx >= 0){
+    const ths = document.querySelectorAll('th');
+    if(ths[idx]){
+      ths[idx].classList.add(sortDir === 1 ? 'sort-asc' : 'sort-desc');
+    }
+  }
+  filterRender();
+}
+
+// ── FILTER BUTTONS ──
+document.querySelectorAll('.flt[data-cat]').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    document.querySelectorAll('.flt[data-cat]').forEach(b=>b.classList.remove('on'));
+    btn.classList.add('on');
+    activeCat = btn.dataset.cat;
+    filterRender();
+  });
+});
+
+// ── DETAIL PANEL ──
+function selectRow(id){
+  selectedId = id;
+  const r = allRecords.find(r=>r._id === id);
+  if(!r){ closeDetail(); return; }
+
+  const detail = document.getElementById('detail');
+  detail.classList.add('open');
+
+  const gpsHref = (r.latitude && r.longitude)
+    ? `https://www.openstreetmap.org/?mlat=${r.latitude}&mlon=${r.longitude}#map=18/${r.latitude}/${r.longitude}`
+    : null;
+
+  const snap = r.snapshot
+    ? `<img src="${r.snapshot}" style="width:100%;border-radius:var(--r);margin-bottom:12px" alt="Capture">`
+    : '';
+
+  detail.innerHTML = `
+    <button class="dv-close" onclick="closeDetail()">✕</button>
+    <div class="detail-title">${r.classe_fr || r.classe_en || '—'}</div>
+    ${snap}
+    ${gpsHref ? `<div class="map-mini"><a href="${gpsHref}" target="_blank" style="color:var(--ct-m);text-decoration:none">📍 Voir sur la carte</a></div>` : ''}
+    ${dv('Classe', r.classe_fr || '—')}
+    ${dv('Classe EN', r.classe_en || '—')}
+    ${dv('Catégorie', r.categorie || '—')}
+    ${dv('Confiance', (r.confiance != null ? r.confiance + '%' : '—'))}
+    ${dv('Horodatage', r.horodatage ? new Date(r.horodatage).toLocaleString('fr-FR') : '—')}
+    ${dv('Latitude', r.latitude != null ? r.latitude.toFixed(7) : '—')}
+    ${dv('Longitude', r.longitude != null ? r.longitude.toFixed(7) : '—')}
+    ${dv('Précision GPS', r.precision_gps != null ? '±' + r.precision_gps + ' m' : '—')}
+    ${dv('Vitesse', r.vitesse_kmh != null ? r.vitesse_kmh + ' km/h' : '—')}
+    ${dv('Cap', r.cap_degres != null ? r.cap_degres + '°' : '—')}
+    ${dv('Objets dans frame', r.nb_objets_frame ?? '—')}
+    ${dv('Session', r.session_id || '—')}
+    ${r.bbox ? dv('Bounding Box', r.bbox) : ''}
+  `;
+  renderTable(); // pour actualiser la ligne sélectionnée
+}
+function closeDetail(){
+  selectedId = null;
+  document.getElementById('detail').classList.remove('open');
+  renderTable();
+}
+function dv(k,v){ return `<div class="dv"><div class="dv-k">${k}</div><div class="dv-v">${v}</div></div>`; }
+</script>
+</body>
+</html>

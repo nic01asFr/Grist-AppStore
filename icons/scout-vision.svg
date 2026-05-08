@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192">
+  <rect width="192" height="192" rx="40" fill="#1f6feb"/>
+  <!-- Camera lens -->
+  <circle cx="96" cy="88" r="36" stroke="white" stroke-width="7" fill="none"/>
+  <circle cx="96" cy="88" r="14" fill="white"/>
+  <!-- Crosshair / detection lines -->
+  <line x1="96" y1="44" x2="96" y2="58" stroke="white" stroke-width="4" stroke-linecap="round" opacity="0.7"/>
+  <line x1="96" y1="118" x2="96" y2="132" stroke="white" stroke-width="4" stroke-linecap="round" opacity="0.7"/>
+  <line x1="52" y1="88" x2="66" y2="88" stroke="white" stroke-width="4" stroke-linecap="round" opacity="0.7"/>
+  <line x1="126" y1="88" x2="140" y2="88" stroke="white" stroke-width="4" stroke-linecap="round" opacity="0.7"/>
+  <!-- Bounding box corner marks -->
+  <path d="M56 142 L56 156 L70 156" stroke="white" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M136 142 L136 156 L122 156" stroke="white" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
