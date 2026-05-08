@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#7c3aed">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>SCOUT ML — Classification terrain</title>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
+<script src="../shared/grist-client.js"></script>
+<script src="../shared/storage.js"></script>
+<script src="../shared/sensors.js"></script>
+<script src="../shared/ml-dataset.js"></script>
+<script src="../shared/ml-trainer.js"></script>
+<style>
+:root{--app:#7c3aed;--app-bg:rgba(124,58,237,.12);--bg:#0d1117;--bg2:#161b22;--bg3:#21262d;--bd:rgba(255,255,255,.08);--bd2:rgba(255,255,255,.18);--tx:#e6edf3;--tx2:#8b949e;--tx3:#484f58;--cg:#3fb950;--cr:#f85149;--ca:#d29922;--r:8px;--r2:12px;--f:'Segoe UI',system-ui,sans-serif;--st:env(safe-area-inset-top,0px);--sb:env(safe-area-inset-bottom,0px)}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--f);background:var(--bg);color:var(--tx);font-size:14px;overflow:hidden;height:100dvh;display:flex;flex-direction:column}
+
+/* Tabs */
+.tabs{display:flex;border-bottom:1px solid var(--bd);flex-shrink:0;background:var(--bg2)}
+.tab{flex:1;padding:12px 8px;text-align:center;font-size:12px;font-weight:600;color:var(--tx3);cursor:pointer;border-bottom:2px solid transparent;-webkit-tap-highlight-color:transparent}
+.tab.on{color:var(--app);border-bottom-color:var(--app)}
+
+/* Screens */
+.screen{display:none;flex:1;overflow-y:auto;flex-direction:column}
+.screen.on{display:flex}
+
+/* Camera */
+#camWrap{position:relative;width:100%;aspect-ratio:4/3;background:#000;flex-shrink:0}
+#cam{width:100%;height:100%;object-fit:cover}
+#overlay{position:absolute;inset:0;pointer-events:none}
+
+/* Class buttons */
+.classes{padding:12px;display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+.cls-btn{padding:10px 18px;border-radius:20px;border:2px solid var(--bd2);background:var(--bg2);color:var(--tx);font-size:13px;font-weight:600;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:all .15s;display:flex;align-items:center;gap:6px}
+.cls-btn:active{transform:scale(.95)}
+.cls-btn .cls-count{background:var(--bg3);border-radius:10px;padding:1px 7px;font-size:11px;color:var(--tx3)}
+.cls-btn.capturing{border-color:var(--app);background:var(--app-bg);color:var(--app)}
+.cls-add{border-style:dashed;color:var(--tx3)}
+
+/* Train section */
+.train-section{padding:16px;flex:1;display:flex;flex-direction:column;gap:12px}
+.stat-row{display:flex;gap:8px;flex-wrap:wrap}
+.stat-card{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);padding:10px 14px;flex:1;min-width:80px;text-align:center}
+.stat-v{font-size:20px;font-weight:700}
+.stat-l{font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.05em;margin-top:2px}
+.progress{background:var(--bg3);border-radius:4px;height:6px;overflow:hidden;margin:8px 0}
+.progress-fill{height:100%;background:var(--app);transition:width .3s;border-radius:4px}
+.train-log{font-size:12px;color:var(--tx2);background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);padding:10px;flex:1;overflow-y:auto;font-family:'Fira Code',monospace;line-height:1.7;min-height:100px}
+.btn-train{padding:14px;border-radius:var(--r2);border:none;background:var(--app);color:#fff;font-size:15px;font-weight:700;cursor:pointer;font-family:var(--f);-webkit-tap-highlight-color:transparent}
+.btn-train:disabled{opacity:.4;cursor:not-allowed}
+.btn-train:active:not(:disabled){filter:brightness(.9)}
+
+/* Use screen */
+.use-result{position:absolute;bottom:16px;left:16px;right:16px;background:rgba(0,0,0,.75);backdrop-filter:blur(8px);border:1px solid var(--bd2);border-radius:var(--r2);padding:14px;text-align:center;z-index:5}
+.use-label{font-size:20px;font-weight:700}
+.use-conf{font-size:13px;color:var(--tx2);margin-top:4px}
+.use-bar{height:4px;background:var(--bg3);border-radius:2px;margin-top:8px;overflow:hidden}
+.use-bar-fill{height:100%;border-radius:2px;transition:width .15s}
+
+/* Loading */
+.loading{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;z-index:100}
+.loading-title{font-size:18px;font-weight:700;color:var(--app)}
+.loading-sub{font-size:12px;color:var(--tx3)}
+
+/* Toast */
+#toast{position:fixed;bottom:calc(70px + var(--sb));left:50%;transform:translateX(-50%) translateY(16px);background:var(--bg2);border:1px solid var(--bd2);border-radius:var(--r2);padding:10px 20px;font-size:13px;font-weight:600;z-index:200;opacity:0;transition:all .25s;pointer-events:none}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+
+<!-- Loading -->
+<div class="loading" id="loadScreen">
+  <div class="loading-title">SCOUT ML Lite</div>
+  <div class="loading-sub" id="loadStatus">Chargement TensorFlow.js + MobileNet…</div>
+</div>
+
+<!-- Tabs -->
+<div class="tabs">
+  <div class="tab on" onclick="switchTab('capture')">📷 Capturer</div>
+  <div class="tab" onclick="switchTab('train')">🧠 Entraîner</div>
+  <div class="tab" onclick="switchTab('use')">▶ Utiliser</div>
+</div>
+
+<!-- Screen: Capture -->
+<div class="screen on" id="screen-capture">
+  <div id="camWrap">
+    <video id="cam" autoplay playsinline muted></video>
+  </div>
+  <div class="classes" id="classButtons"></div>
+</div>
+
+<!-- Screen: Train -->
+<div class="screen" id="screen-train">
+  <div class="train-section">
+    <div class="stat-row" id="trainStats"></div>
+    <div class="progress"><div class="progress-fill" id="trainProgress" style="width:0%"></div></div>
+    <div class="train-log" id="trainLog">Prêt. Capturez au moins 10 images par classe puis entraînez.</div>
+    <button class="btn-train" id="btnTrain" onclick="startTraining()" disabled>🧠 Entraîner le modèle</button>
+  </div>
+</div>
+
+<!-- Screen: Use -->
+<div class="screen" id="screen-use">
+  <div id="camWrap2" style="position:relative;width:100%;flex:1;background:#000">
+    <video id="cam2" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover"></video>
+    <div class="use-result" id="useResult" style="display:none">
+      <div class="use-label" id="useLabel">—</div>
+      <div class="use-conf" id="useConf">—</div>
+      <div class="use-bar"><div class="use-bar-fill" id="useBar" style="width:0%;background:var(--app)"></div></div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ══ STATE ══
+const dataset = new MLDataset();
+const trainer = new InBrowserTrainer();
+const store   = new AppStorage('scout_ml_lite_v1');
+
+let classes   = [];
+let camStream = null;
+let predicting = false;
+let predInterval = null;
+
+// ══ INIT ══
+async function init() {
+  const saved = await store.load();
+  if (saved?.classes) classes = saved.classes;
+  if (!classes.length) classes = ['Classe A', 'Classe B'];
+
+  await trainer.init(msg => document.getElementById('loadStatus').textContent = msg);
+
+  // Essayer de charger un modèle sauvé
+  try { await trainer.load('scout-ml-lite'); } catch(_) {}
+
+  document.getElementById('loadScreen').style.display = 'none';
+  renderClassButtons();
+  updateTrainStats();
+  startCamera('cam');
+}
+
+// ══ CAMERA ══
+async function startCamera(videoId) {
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 640 }, height: { ideal: 480 } },
+      audio: false
+    });
+    const v = document.getElementById(videoId);
+    v.srcObject = camStream;
+    await new Promise(r => { v.onloadedmetadata = () => { v.play(); r(); }; });
+    // Mirror for cam2
+    const v2 = document.getElementById(videoId === 'cam' ? 'cam2' : 'cam');
+    if (v2) v2.srcObject = camStream;
+  } catch(e) {
+    toast('Caméra inaccessible');
+  }
+}
+
+// ══ CLASSES ══
+function renderClassButtons() {
+  const container = document.getElementById('classButtons');
+  container.innerHTML = classes.map((c, i) =>
+    `<button class="cls-btn" onclick="captureForClass('${c}')" id="cls-${i}">
+      ${c} <span class="cls-count" id="cnt-${i}">0</span>
+    </button>`
+  ).join('') + `<button class="cls-btn cls-add" onclick="addClass()">+ Classe</button>`;
+  updateCounts();
+}
+
+async function updateCounts() {
+  const stats = await dataset.getClassStats();
+  classes.forEach((c, i) => {
+    const el = document.getElementById('cnt-' + i);
+    if (el) el.textContent = stats[c]?.total || 0;
+  });
+}
+
+function addClass() {
+  const name = prompt('Nom de la nouvelle classe :');
+  if (!name || !name.trim()) return;
+  classes.push(name.trim());
+  store.save({ classes });
+  renderClassButtons();
+}
+
+// ══ CAPTURE ══
+async function captureForClass(label) {
+  const video = document.getElementById('cam');
+  if (video.readyState < 2) return;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 224; canvas.height = 224;
+  canvas.getContext('2d').drawImage(video, 0, 0, 224, 224);
+
+  const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.85));
+  await dataset.capture(blob, label, { source: 'lite' });
+  await updateCounts();
+  await updateTrainStats();
+
+  // Flash feedback
+  const idx = classes.indexOf(label);
+  const btn = document.getElementById('cls-' + idx);
+  if (btn) { btn.classList.add('capturing'); setTimeout(() => btn.classList.remove('capturing'), 200); }
+
+  toast(`${label} +1`);
+}
+
+// ══ TRAIN ══
+async function updateTrainStats() {
+  const stats = await dataset.getClassStats();
+  const container = document.getElementById('trainStats');
+  const total = Object.values(stats).reduce((n, s) => n + s.total, 0);
+  const minPerClass = Math.min(...Object.values(stats).map(s => s.total), 0);
+  const ready = classes.length >= 2 && Object.keys(stats).length >= 2 && minPerClass >= 5;
+
+  container.innerHTML = classes.map(c => {
+    const n = stats[c]?.total || 0;
+    const color = n >= 10 ? 'var(--cg)' : n >= 5 ? 'var(--ca)' : 'var(--cr)';
+    return `<div class="stat-card"><div class="stat-v" style="color:${color}">${n}</div><div class="stat-l">${c}</div></div>`;
+  }).join('') + `<div class="stat-card"><div class="stat-v">${total}</div><div class="stat-l">Total</div></div>`;
+
+  document.getElementById('btnTrain').disabled = !ready;
+}
+
+async function startTraining() {
+  const btn = document.getElementById('btnTrain');
+  const log = document.getElementById('trainLog');
+  const bar = document.getElementById('trainProgress');
+  btn.disabled = true;
+  log.textContent = '';
+
+  function logMsg(msg) { log.textContent += msg + '\n'; log.scrollTop = log.scrollHeight; }
+
+  try {
+    const samples = await dataset.listSamples();
+    if (samples.length < 10) { logMsg('Pas assez de données.'); btn.disabled = false; return; }
+
+    logMsg(`Dataset : ${samples.length} images, ${classes.length} classes`);
+
+    const result = await trainer.train(samples, classes, {
+      epochs: 20,
+      onProgress: msg => {
+        logMsg(msg);
+        const match = msg.match(/Epoch (\d+)/);
+        if (match) bar.style.width = (parseInt(match[1]) / 20 * 100) + '%';
+      }
+    });
+
+    bar.style.width = '100%';
+    logMsg(`\n✓ Entraînement terminé !`);
+    logMsg(`  Accuracy : ${(result.accuracy * 100).toFixed(1)}%`);
+    logMsg(`  Validation : ${(result.valAccuracy * 100).toFixed(1)}%`);
+    logMsg(`  ${result.samples} samples, ${result.classes.length} classes`);
+
+    await trainer.save('scout-ml-lite');
+    logMsg(`  Modèle sauvé localement.`);
+    toast('Modèle entraîné — allez dans "Utiliser"');
+
+  } catch(e) {
+    logMsg(`\n✕ Erreur : ${e.message}`);
+  }
+  btn.disabled = false;
+}
+
+// ══ USE (prédiction en temps réel) ══
+function startPrediction() {
+  if (!trainer.classifier) { toast('Entraînez d\'abord un modèle'); return; }
+  predicting = true;
+  document.getElementById('useResult').style.display = '';
+  predLoop();
+}
+
+function stopPrediction() {
+  predicting = false;
+}
+
+async function predLoop() {
+  const video = document.getElementById('cam2');
+  while (predicting) {
+    if (video.readyState >= 2 && trainer.classifier) {
+      const canvas = new OffscreenCanvas(224, 224);
+      canvas.getContext('2d').drawImage(video, 0, 0, 224, 224);
+      const result = trainer.predict(canvas);
+      if (result) {
+        document.getElementById('useLabel').textContent = result.label;
+        document.getElementById('useConf').textContent = `${(result.confidence * 100).toFixed(0)}%`;
+        const bar = document.getElementById('useBar');
+        bar.style.width = (result.confidence * 100) + '%';
+        bar.style.background = result.confidence > 0.8 ? 'var(--cg)' : result.confidence > 0.5 ? 'var(--ca)' : 'var(--cr)';
+      }
+    }
+    await new Promise(r => setTimeout(r, 200));
+  }
+}
+
+// ══ TABS ══
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('on'));
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('on'));
+  document.querySelector(`.tab[onclick*="${name}"]`).classList.add('on');
+  document.getElementById('screen-' + name).classList.add('on');
+
+  if (name === 'train') updateTrainStats();
+  if (name === 'use') startPrediction();
+  else stopPrediction();
+}
+
+// ══ TOAST ══
+let toastTimer;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2500);
+}
+
+init();
+</script>
+</body>
+</html>
